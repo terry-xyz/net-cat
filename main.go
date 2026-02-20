@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net-cat/logger"
 	"net-cat/server"
 	"os"
 	"os/signal"
@@ -22,6 +23,12 @@ func main() {
 	}
 
 	srv := server.New(port)
+
+	l, err := logger.New("logs")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not initialize logger: %v\n", err)
+	}
+	srv.Logger = l
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)

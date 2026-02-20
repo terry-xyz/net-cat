@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net-cat/client"
+	"net-cat/logger"
 	"net-cat/models"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ type Server struct {
 	reservedNames map[string]bool
 	quit          chan struct{}
 	shutdownOnce  sync.Once
+	Logger        *logger.Logger
 }
 
 // New creates a server that will listen on the given port.
@@ -41,6 +43,11 @@ func (s *Server) Start() error {
 		return err
 	}
 	fmt.Printf("Listening on the port :%s\n", s.port)
+	s.Logger.Log(models.Message{
+		Timestamp: time.Now(),
+		Type:      models.MsgServerEvent,
+		Content:   "Server started on port " + s.port,
+	})
 	s.acceptLoop()
 	return nil
 }
@@ -56,6 +63,13 @@ func (s *Server) Shutdown() {
 		s.mu.RUnlock()
 		// Brief pause so write goroutines can flush the goodbye
 		time.Sleep(50 * time.Millisecond)
+		// Log shutdown synchronously before process exit
+		s.Logger.Log(models.Message{
+			Timestamp: time.Now(),
+			Type:      models.MsgServerEvent,
+			Content:   "Server shutting down",
+		})
+		s.Logger.Close()
 		if s.listener != nil {
 			s.listener.Close()
 		}
@@ -160,6 +174,12 @@ func (s *Server) GetHistory() []models.Message {
 	out := make([]models.Message, len(s.history))
 	copy(out, s.history)
 	return out
+}
+
+// recordEvent adds the message to in-memory history and writes it to the log file.
+func (s *Server) recordEvent(msg models.Message) {
+	s.AddHistory(msg)
+	s.Logger.Log(msg)
 }
 
 // ---------- broadcast ----------

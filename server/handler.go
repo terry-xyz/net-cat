@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net-cat/client"
 	"net-cat/cmd"
@@ -44,6 +45,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 	for {
 		name, err := c.ReadLine()
 		if err != nil {
+			if err != io.EOF {
+				s.Logger.Log(models.Message{
+					Timestamp: time.Now(),
+					Type:      models.MsgServerEvent,
+					Content:   fmt.Sprintf("Connection error during onboarding from %s", c.IP),
+				})
+			}
 			c.Close()
 			return
 		}
@@ -73,16 +81,20 @@ func (s *Server) handleConnection(conn net.Conn) {
 		username := c.Username
 		switch c.DisconnectReason {
 		case "kicked", "banned":
-			// moderation handler already removed from map + broadcast
+			// moderation handler already removed from map + broadcast + logged
 		default:
 			s.RemoveClient(username)
+			reason := c.DisconnectReason
+			if reason == "" {
+				reason = "voluntary"
+			}
 			leaveMsg := models.Message{
 				Timestamp: time.Now(),
 				Sender:    username,
 				Type:      models.MsgLeave,
-				Extra:     "voluntary",
+				Extra:     reason,
 			}
-			s.AddHistory(leaveMsg)
+			s.recordEvent(leaveMsg)
 			s.Broadcast(models.FormatLeave(username)+"\n", username)
 		}
 		c.Close()
@@ -102,13 +114,23 @@ func (s *Server) handleConnection(conn net.Conn) {
 		Sender:    c.Username,
 		Type:      models.MsgJoin,
 	}
-	s.AddHistory(joinMsg)
+	s.recordEvent(joinMsg)
 	s.Broadcast(models.FormatJoin(c.Username)+"\n", c.Username)
 
 	// --- Message loop ---
 	for {
 		line, err := c.ReadLine()
 		if err != nil {
+			if c.DisconnectReason == "" {
+				c.DisconnectReason = "drop"
+			}
+			if err != io.EOF {
+				s.Logger.Log(models.Message{
+					Timestamp: time.Now(),
+					Type:      models.MsgServerEvent,
+					Content:   fmt.Sprintf("Connection error for %s: %v", c.Username, err),
+				})
+			}
 			return
 		}
 		cmdName, args, isCmd := cmd.ParseCommand(line)
@@ -180,7 +202,7 @@ func (s *Server) handleChatMessage(c *client.Client, line string) {
 		Content:   line,
 		Type:      models.MsgChat,
 	}
-	s.AddHistory(msg)
+	s.recordEvent(msg)
 	s.Broadcast(msg.Display()+"\n", c.Username)
 	c.LastActivity = now
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
@@ -315,7 +337,7 @@ func (s *Server) cmdName(c *client.Client, args string) {
 		Type:      models.MsgNameChange,
 		Extra:     oldName,
 	}
-	s.AddHistory(nameMsg)
+	s.recordEvent(nameMsg)
 	s.BroadcastAll(models.FormatNameChange(oldName, newName) + "\n")
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
@@ -390,7 +412,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 		Type:      models.MsgModeration,
 		Extra:     c.Username,
 	}
-	s.AddHistory(modMsg)
+	s.recordEvent(modMsg)
 	s.Broadcast(models.FormatModeration(args, "kicked", c.Username)+"\n", "")
 	target.Send("You have been kicked by " + c.Username + ".\n")
 	target.Close()
@@ -422,7 +444,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 		Type:      models.MsgModeration,
 		Extra:     c.Username,
 	}
-	s.AddHistory(modMsg)
+	s.recordEvent(modMsg)
 	s.Broadcast(models.FormatModeration(args, "banned", c.Username)+"\n", "")
 	target.Send("You have been banned by " + c.Username + ".\n")
 	target.Close()
@@ -457,7 +479,7 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 		Type:      models.MsgModeration,
 		Extra:     c.Username,
 	}
-	s.AddHistory(modMsg)
+	s.recordEvent(modMsg)
 	s.BroadcastAll(models.FormatModeration(args, "muted", c.Username) + "\n")
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
@@ -490,7 +512,7 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 		Type:      models.MsgModeration,
 		Extra:     c.Username,
 	}
-	s.AddHistory(modMsg)
+	s.recordEvent(modMsg)
 	s.BroadcastAll(models.FormatModeration(args, "unmuted", c.Username) + "\n")
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
@@ -509,7 +531,7 @@ func (s *Server) cmdAnnounce(c *client.Client, args string) {
 		Type:      models.MsgAnnouncement,
 		Extra:     c.Username,
 	}
-	s.AddHistory(announceMsg)
+	s.recordEvent(announceMsg)
 	s.BroadcastAll(models.FormatAnnouncement(args) + "\n")
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
@@ -543,7 +565,7 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 		Type:      models.MsgModeration,
 		Extra:     c.Username,
 	}
-	s.AddHistory(modMsg)
+	s.recordEvent(modMsg)
 	c.Send(args + " has been promoted to admin.\n")
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
@@ -577,7 +599,7 @@ func (s *Server) cmdDemote(c *client.Client, args string) {
 		Type:      models.MsgModeration,
 		Extra:     c.Username,
 	}
-	s.AddHistory(modMsg)
+	s.recordEvent(modMsg)
 	c.Send(args + " has been demoted.\n")
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }

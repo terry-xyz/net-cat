@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"net"
 	"net-cat/client"
+	"net-cat/logger"
+	"net-cat/models"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -956,5 +960,399 @@ func TestRapidFireMessageOrder(t *testing.T) {
 	}
 	if received < 20 {
 		t.Errorf("expected 20 messages delivered in order, got %d", received)
+	}
+}
+
+// ==================== Logging helpers ====================
+
+func newServerWithLogger(t *testing.T) (*Server, string) {
+	t.Helper()
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	s := New("0")
+	l, err := logger.New(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Logger = l
+	t.Cleanup(func() { l.Close() })
+	return s, logsDir
+}
+
+func readLogContent(t *testing.T, logsDir string) string {
+	t.Helper()
+	date := logger.FormatDate(time.Now())
+	path := filepath.Join(logsDir, "chat_"+date+".log")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ""
+		}
+		t.Fatalf("could not read log file: %v", err)
+	}
+	return string(data)
+}
+
+// ==================== Task 9: Activity Logging ====================
+
+// closeAndReadLog closes connections, waits for handlers to finish, closes the logger, and reads the log.
+func closeAndReadLog(t *testing.T, s *Server, logsDir string, conns ...net.Conn) string {
+	t.Helper()
+	for _, c := range conns {
+		c.Close()
+	}
+	time.Sleep(200 * time.Millisecond) // wait for handler goroutines to finish
+	s.Logger.Close()
+	return readLogContent(t, logsDir)
+}
+
+func TestLoggingChatMessages(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "hello from alice\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if !strings.Contains(content, "CHAT [alice]:hello from alice") {
+		t.Errorf("log should contain chat message, got: %q", content)
+	}
+}
+
+func TestLoggingJoinEvent(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+
+	onboard(c1, "alice")
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	if !strings.Contains(content, "JOIN alice") {
+		t.Errorf("log should contain join event, got: %q", content)
+	}
+}
+
+func TestLoggingLeaveEventVoluntary(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	onboard(c1, "alice")
+
+	c2 := connectPipe(s)
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Bob uses /quit (voluntary leave)
+	fmt.Fprintf(c2, "/quit\n")
+	readUntil(c1, "bob has left", 2*time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	if !strings.Contains(content, "LEAVE bob voluntary") {
+		t.Errorf("log should contain voluntary leave, got: %q", content)
+	}
+}
+
+func TestLoggingLeaveEventDrop(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	onboard(c1, "alice")
+
+	c2 := connectPipe(s)
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Bob's connection drops (no /quit)
+	c2.Close()
+	readUntil(c1, "bob has left", 2*time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	if !strings.Contains(content, "LEAVE bob drop") {
+		t.Errorf("log should contain drop leave, got: %q", content)
+	}
+}
+
+func TestLoggingModerationKick(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+
+	onboard(c1, "admin")
+	onboard(c2, "target")
+	readUntil(c1, "target has joined", time.Second)
+
+	cl := s.GetClient("admin")
+	cl.Admin = true
+
+	fmt.Fprintf(c1, "/kick target\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if !strings.Contains(content, "MOD kicked target admin") {
+		t.Errorf("log should contain kick moderation event, got: %q", content)
+	}
+}
+
+func TestLoggingModerationBan(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+
+	onboard(c1, "admin")
+	onboard(c2, "target")
+	readUntil(c1, "target has joined", time.Second)
+
+	cl := s.GetClient("admin")
+	cl.Admin = true
+
+	fmt.Fprintf(c1, "/ban target\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if !strings.Contains(content, "MOD banned target admin") {
+		t.Errorf("log should contain ban moderation event, got: %q", content)
+	}
+}
+
+func TestLoggingModerationMuteUnmute(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+
+	onboard(c1, "admin")
+	onboard(c2, "target")
+	readUntil(c1, "target has joined", time.Second)
+
+	cl := s.GetClient("admin")
+	cl.Admin = true
+
+	fmt.Fprintf(c1, "/mute target\n")
+	readUntil(c1, "][admin]:", time.Second)
+	fmt.Fprintf(c1, "/unmute target\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if !strings.Contains(content, "MOD muted target admin") {
+		t.Errorf("log should contain mute event, got: %q", content)
+	}
+	if !strings.Contains(content, "MOD unmuted target admin") {
+		t.Errorf("log should contain unmute event, got: %q", content)
+	}
+}
+
+func TestLoggingPromoteDemote(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+
+	onboard(c1, "operator")
+	onboard(c2, "target")
+	readUntil(c1, "target has joined", time.Second)
+
+	// Call promote/demote directly since they require operator privilege (Task 18)
+	cl := s.GetClient("operator")
+	s.cmdPromote(cl, "target")
+	readUntil(c2, "promoted", time.Second)
+	s.cmdDemote(cl, "target")
+	readUntil(c2, "revoked", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if !strings.Contains(content, "MOD promoted target operator") {
+		t.Errorf("log should contain promote event, got: %q", content)
+	}
+	if !strings.Contains(content, "MOD demoted target operator") {
+		t.Errorf("log should contain demote event, got: %q", content)
+	}
+}
+
+func TestLoggingAnnouncement(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+
+	onboard(c1, "admin")
+	cl := s.GetClient("admin")
+	cl.Admin = true
+
+	fmt.Fprintf(c1, "/announce Server maintenance at midnight\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	if !strings.Contains(content, "ANNOUNCE [admin]:Server maintenance at midnight") {
+		t.Errorf("log should contain announcement, got: %q", content)
+	}
+}
+
+func TestLoggingNameChange(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+
+	onboard(c1, "oldname")
+	fmt.Fprintf(c1, "/name newname\n")
+	readUntil(c1, "][newname]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	if !strings.Contains(content, "NAMECHANGE oldname newname") {
+		t.Errorf("log should contain name change, got: %q", content)
+	}
+}
+
+func TestLoggingWhisperNotInLog(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/whisper bob secret message\n")
+	readUntil(c1, "PM to bob", time.Second)
+
+	// Send a regular message to ensure the log has been written
+	fmt.Fprintf(c1, "regular message\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if strings.Contains(content, "secret message") {
+		t.Errorf("whisper should NOT be in log, got: %q", content)
+	}
+	if strings.Contains(content, "PM") {
+		t.Errorf("no PM-related content should be in log, got: %q", content)
+	}
+	if !strings.Contains(content, "regular message") {
+		t.Errorf("regular message should be in log, got: %q", content)
+	}
+}
+
+func TestLoggingConsoleMinimal(t *testing.T) {
+	// Verify the log file contains events (console output cannot be
+	// easily captured here, but the code does not print chat to console).
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+
+	onboard(c1, "alice")
+	fmt.Fprintf(c1, "test message\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	if !strings.Contains(content, "CHAT [alice]:test message") {
+		t.Error("chat message should be in log file")
+	}
+	if !strings.Contains(content, "JOIN alice") {
+		t.Error("join event should be in log file")
+	}
+}
+
+func TestLoggingSameDayAppend(t *testing.T) {
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	// First "session"
+	s1 := New("0")
+	l1, _ := logger.New(logsDir)
+	s1.Logger = l1
+
+	c1 := connectPipe(s1)
+	onboard(c1, "alice")
+	fmt.Fprintf(c1, "first session\n")
+	readUntil(c1, "][alice]:", time.Second)
+	c1.Close()
+	time.Sleep(200 * time.Millisecond)
+	l1.Close()
+
+	// Second "session" (simulated restart)
+	s2 := New("0")
+	l2, _ := logger.New(logsDir)
+	s2.Logger = l2
+
+	c2 := connectPipe(s2)
+	onboard(c2, "bob")
+	fmt.Fprintf(c2, "second session\n")
+	readUntil(c2, "][bob]:", time.Second)
+	c2.Close()
+	time.Sleep(200 * time.Millisecond)
+	l2.Close()
+
+	content := readLogContent(t, logsDir)
+	if !strings.Contains(content, "first session") {
+		t.Error("first session messages should be present")
+	}
+	if !strings.Contains(content, "second session") {
+		t.Error("second session messages should be appended")
+	}
+}
+
+func TestLoggingConcurrentMessages(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+
+	// Create 10 clients
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		name := fmt.Sprintf("user%d", i)
+		onboard(conns[i], name)
+	}
+	// Wait for all join notifications to propagate
+	time.Sleep(200 * time.Millisecond)
+
+	// Each client sends a message
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(conns[i], "msg from user%d\n", i)
+	}
+	// Wait for all messages to be processed
+	time.Sleep(500 * time.Millisecond)
+
+	content := closeAndReadLog(t, s, logsDir, conns...)
+	for i := 0; i < 10; i++ {
+		expected := fmt.Sprintf("msg from user%d", i)
+		count := strings.Count(content, expected)
+		if count != 1 {
+			t.Errorf("expected message %q to appear exactly once in log, got %d times", expected, count)
+		}
+	}
+}
+
+func TestLoggingDiskErrorContinues(t *testing.T) {
+	// Server with a nil logger should still work (chat functions normally)
+	s := New("0")
+	// Logger is nil by default
+
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "hello bob\n")
+	text, err := readUntil(c2, "hello bob", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "[alice]:hello bob") {
+		t.Error("chat should still work with nil logger")
+	}
+}
+
+func TestLoggingEventsSelfContained(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	c1 := connectPipe(s)
+
+	onboard(c1, "alice")
+	fmt.Fprintf(c1, "hello world\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		_, err := models.ParseLogLine(line)
+		if err != nil {
+			t.Errorf("log line not parseable: %v (line: %q)", err, line)
+		}
 	}
 }
