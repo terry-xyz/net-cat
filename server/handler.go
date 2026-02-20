@@ -37,6 +37,12 @@ const NamePrompt = "[ENTER YOUR NAME]:"
 func (s *Server) handleConnection(conn net.Conn) {
 	c := client.NewClient(conn)
 
+	// Check capacity before sending banner
+	if !s.checkOrQueue(c) {
+		c.Close()
+		return
+	}
+
 	// Send welcome banner + name prompt
 	c.Send(WelcomeBanner + NamePrompt)
 
@@ -97,6 +103,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			s.recordEvent(leaveMsg)
 			s.Broadcast(models.FormatLeave(username)+"\n", username)
 		}
+		s.admitFromQueue()
 		c.Close()
 	}()
 
@@ -141,6 +148,102 @@ func (s *Server) handleConnection(conn net.Conn) {
 			continue
 		}
 		s.handleChatMessage(c, line)
+	}
+}
+
+// ---------- capacity check and queue ----------
+
+// checkOrQueue returns true if the client can proceed to onboarding.
+// If the server is at capacity, offers a queue position and blocks until
+// admitted, declined, or the server shuts down.
+func (s *Server) checkOrQueue(c *client.Client) bool {
+	s.mu.RLock()
+	activeCount := len(s.clients)
+	s.mu.RUnlock()
+
+	if activeCount < MaxActiveClients {
+		return true
+	}
+
+	// Server is full — offer queue
+	s.mu.Lock()
+	entry := &QueueEntry{
+		client: c,
+		admit:  make(chan struct{}),
+	}
+	s.queue = append(s.queue, entry)
+	pos := len(s.queue)
+	s.mu.Unlock()
+
+	c.Send(fmt.Sprintf("Chat is full. You are #%d in the queue. Would you like to wait? (yes/no)\n", pos))
+
+	// Read yes/no response
+	for {
+		line, err := c.ReadLine()
+		if err != nil {
+			s.removeFromQueue(entry)
+			return false
+		}
+		line = strings.TrimSpace(line)
+		switch line {
+		case "yes":
+			return s.waitForAdmission(c, entry)
+		case "no":
+			s.removeFromQueue(entry)
+			return false
+		default:
+			c.Send("Invalid input. Please type 'yes' or 'no'.\n")
+		}
+	}
+}
+
+// waitForAdmission blocks until the client is admitted from the queue, disconnects,
+// or the server shuts down. Returns true if admitted.
+func (s *Server) waitForAdmission(c *client.Client, entry *QueueEntry) bool {
+	// Start a goroutine that reads from the connection to detect disconnection.
+	// Any input while queued is ignored; errors signal disconnection.
+	readDone := make(chan error, 1)
+	monitorDone := make(chan struct{})
+	go func() {
+		defer close(monitorDone)
+		for {
+			_, err := c.ReadLine()
+			if err != nil {
+				select {
+				case readDone <- err:
+				default:
+				}
+				return
+			}
+			// Check if admitted (entry.admit closed)
+			select {
+			case <-entry.admit:
+				return
+			default:
+				// Ignore input while queued
+			}
+		}
+	}()
+
+	select {
+	case <-entry.admit:
+		// Admitted — stop the monitor goroutine by setting a deadline
+		c.Conn.SetReadDeadline(time.Now())
+		<-monitorDone // wait for goroutine to exit
+		c.Conn.SetReadDeadline(time.Time{})
+		c.ResetScanner()
+		return true
+	case <-s.quit:
+		// Server shutting down — Shutdown() already sent the goodbye message;
+		// give the write goroutine time to flush it before we return and
+		// handleConnection closes the connection.
+		time.Sleep(100 * time.Millisecond)
+		s.removeFromQueue(entry)
+		return false
+	case <-readDone:
+		// Client disconnected while waiting
+		s.removeFromQueue(entry)
+		return false
 	}
 }
 
@@ -416,6 +519,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 	s.Broadcast(models.FormatModeration(args, "kicked", c.Username)+"\n", "")
 	target.Send("You have been kicked by " + c.Username + ".\n")
 	target.Close()
+	s.admitFromQueue()
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
 
@@ -448,6 +552,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	s.Broadcast(models.FormatModeration(args, "banned", c.Username)+"\n", "")
 	target.Send("You have been banned by " + c.Username + ".\n")
 	target.Close()
+	s.admitFromQueue()
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
 

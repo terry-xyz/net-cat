@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+// QueueEntry represents a client waiting for a slot to open.
+type QueueEntry struct {
+	client *client.Client
+	admit  chan struct{} // closed when the client is admitted
+}
+
 // Server manages the TCP listener, connected clients, and chat history.
 type Server struct {
 	port          string
@@ -23,6 +29,7 @@ type Server struct {
 	quit          chan struct{}
 	shutdownOnce  sync.Once
 	Logger        *logger.Logger
+	queue         []*QueueEntry // protected by mu
 }
 
 // New creates a server that will listen on the given port.
@@ -62,6 +69,10 @@ func (s *Server) Shutdown() {
 		s.mu.RLock()
 		for _, c := range s.clients {
 			c.Send("Server is shutting down. Goodbye!\n")
+		}
+		// Also notify queued clients
+		for _, e := range s.queue {
+			e.client.Send("Server is shutting down. Goodbye!\n")
 		}
 		s.mu.RUnlock()
 		// Brief pause so write goroutines can flush the goodbye
@@ -259,6 +270,54 @@ func (s *Server) RecoverHistory() {
 	if corrupt > 0 {
 		fmt.Fprintf(os.Stderr, "Warning: %d corrupt line(s) skipped during history recovery\n", corrupt)
 	}
+}
+
+// ---------- queue management ----------
+
+// MaxActiveClients is the maximum number of clients that can be actively chatting.
+const MaxActiveClients = 10
+
+// removeFromQueue removes the given entry from the queue and sends position updates.
+func (s *Server) removeFromQueue(entry *QueueEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, e := range s.queue {
+		if e == entry {
+			s.queue = append(s.queue[:i], s.queue[i+1:]...)
+			break
+		}
+	}
+	// Send position updates to remaining queue members
+	for i, e := range s.queue {
+		e.client.Send(fmt.Sprintf("You are now #%d in the queue.\n", i+1))
+	}
+}
+
+// admitFromQueue admits the first valid queued client, if any.
+// Called after a registered client departs to fill the opened slot.
+func (s *Server) admitFromQueue() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for len(s.queue) > 0 {
+		entry := s.queue[0]
+		s.queue = s.queue[1:]
+		if entry.client.IsClosed() {
+			continue
+		}
+		close(entry.admit)
+		// Send position updates to remaining queue members
+		for i, e := range s.queue {
+			e.client.Send(fmt.Sprintf("You are now #%d in the queue.\n", i+1))
+		}
+		return
+	}
+}
+
+// GetQueueLength returns the current number of queued clients.
+func (s *Server) GetQueueLength() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.queue)
 }
 
 // IsShuttingDown reports whether the server is in the shutdown process.

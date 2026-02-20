@@ -1892,3 +1892,412 @@ func TestRecoveryKickBanInHistory(t *testing.T) {
 		t.Errorf("should see ban event in recovered history, got: %q", text)
 	}
 }
+
+// ==================== Task 11: Connection Capacity ====================
+
+func TestTenClientsCanChat(t *testing.T) {
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		name := fmt.Sprintf("user%d", i)
+		onboard(conns[i], name)
+	}
+	// All 10 should be registered
+	if s.GetClientCount() != 10 {
+		t.Errorf("expected 10 clients, got %d", s.GetClientCount())
+	}
+	// They can exchange messages
+	fmt.Fprintf(conns[0], "hello from user0\n")
+	readUntil(conns[0], "][user0]:", time.Second)
+	text, err := readUntil(conns[9], "hello from user0", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "[user0]:hello from user0") {
+		t.Errorf("message should be delivered, got: %q", text)
+	}
+}
+
+func TestEleventhClientDoesNotReceiveBanner(t *testing.T) {
+	s := New("0")
+	// Fill up to 10 active clients
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// 11th client connects
+	c11 := connectPipe(s)
+	defer c11.Close()
+
+	text, err := readUntil(c11, "queue", 2*time.Second)
+	if err != nil {
+		t.Fatalf("11th client should receive queue message: %v", err)
+	}
+	if strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("11th client should NOT receive the welcome banner")
+	}
+	if strings.Contains(text, "[ENTER YOUR NAME]:") {
+		t.Error("11th client should NOT receive the name prompt")
+	}
+	if !strings.Contains(text, "Chat is full") {
+		t.Error("11th client should see 'Chat is full'")
+	}
+	if !strings.Contains(text, "#1 in the queue") {
+		t.Errorf("11th client should be #1 in queue, got: %q", text)
+	}
+}
+
+func TestQueueChooseNo(t *testing.T) {
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	c11 := connectPipe(s)
+	defer c11.Close()
+	readUntil(c11, "yes/no", 2*time.Second)
+	fmt.Fprintf(c11, "no\n")
+
+	// Connection should be closed by server
+	time.Sleep(200 * time.Millisecond)
+	if s.GetQueueLength() != 0 {
+		t.Error("queue should be empty after 'no'")
+	}
+}
+
+func TestQueueChooseYesAdmittedOnSlotOpen(t *testing.T) {
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// 11th client queues
+	c11 := connectPipe(s)
+	defer c11.Close()
+	readUntil(c11, "yes/no", 2*time.Second)
+	fmt.Fprintf(c11, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	if s.GetQueueLength() != 1 {
+		t.Errorf("expected 1 in queue, got %d", s.GetQueueLength())
+	}
+
+	// Disconnect one active client to open a slot
+	conns[0].Close()
+
+	// 11th client should now receive the welcome banner
+	text, err := readUntil(c11, "[ENTER YOUR NAME]:", 3*time.Second)
+	if err != nil {
+		t.Fatalf("queued client should receive banner after slot opens: %v", err)
+	}
+	if !strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("queued client should receive the full welcome banner")
+	}
+
+	// Complete onboarding
+	fmt.Fprintf(c11, "admitted\n")
+	_, err = readUntil(c11, "][admitted]:", 2*time.Second)
+	if err != nil {
+		t.Fatalf("admitted client should complete onboarding: %v", err)
+	}
+
+	if s.GetQueueLength() != 0 {
+		t.Error("queue should be empty after admission")
+	}
+}
+
+func TestQueuePositionUpdatesOnQueueChange(t *testing.T) {
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Queue 3 clients
+	q1 := connectPipe(s)
+	defer q1.Close()
+	readUntil(q1, "yes/no", 2*time.Second)
+	fmt.Fprintf(q1, "yes\n")
+
+	q2 := connectPipe(s)
+	defer q2.Close()
+	readUntil(q2, "#2 in the queue", 2*time.Second)
+	fmt.Fprintf(q2, "yes\n")
+
+	q3 := connectPipe(s)
+	defer q3.Close()
+	readUntil(q3, "#3 in the queue", 2*time.Second)
+	fmt.Fprintf(q3, "yes\n")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Disconnect one active client — q1 is admitted, q2 and q3 get position updates
+	conns[0].Close()
+
+	// q1 should get the banner
+	readUntil(q1, "[ENTER YOUR NAME]:", 3*time.Second)
+
+	// q2 should now be #1
+	text, err := readUntil(q2, "#1 in the queue", 2*time.Second)
+	if err != nil {
+		t.Fatalf("q2 should receive position update to #1: %v (got: %q)", err, text)
+	}
+	// q3 should now be #2
+	text, err = readUntil(q3, "#2 in the queue", 2*time.Second)
+	if err != nil {
+		t.Fatalf("q3 should receive position update to #2: %v (got: %q)", err, text)
+	}
+}
+
+func TestNamePromptDoesNotCountAgainstLimit(t *testing.T) {
+	// 9 active clients + 5 at name prompt: 10th active connection is allowed without queue offer
+	s := New("0")
+
+	// Create 9 active clients
+	conns := make([]net.Conn, 9)
+	for i := 0; i < 9; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Create 5 clients at name prompt (they read banner but don't send a name)
+	namePromptConns := make([]net.Conn, 5)
+	for i := 0; i < 5; i++ {
+		namePromptConns[i] = connectPipe(s)
+		defer namePromptConns[i].Close()
+		readUntil(namePromptConns[i], "[ENTER YOUR NAME]:", 2*time.Second)
+	}
+
+	// 10th active connection should NOT be queued
+	c10 := connectPipe(s)
+	defer c10.Close()
+	text, err := readUntil(c10, "[ENTER YOUR NAME]:", 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "Chat is full") {
+		t.Error("10th active connection should NOT be queued when name-prompt clients don't count")
+	}
+	if !strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("10th active connection should receive the banner")
+	}
+}
+
+func TestTenActiveAndNamePromptNewClientQueued(t *testing.T) {
+	// 10 active + 3 at name prompt + new connector: new connector gets queue offer
+	// Name-prompt clients must connect BEFORE the server is full so they aren't queued.
+	s := New("0")
+
+	// 3 clients at name prompt (connect when active=0, so they bypass queue check)
+	namePromptConns := make([]net.Conn, 3)
+	for i := 0; i < 3; i++ {
+		namePromptConns[i] = connectPipe(s)
+		defer namePromptConns[i].Close()
+		readUntil(namePromptConns[i], "[ENTER YOUR NAME]:", 2*time.Second)
+	}
+
+	// 10 active clients
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// New connector should get queue offer (10 active >= limit)
+	c14 := connectPipe(s)
+	defer c14.Close()
+	text, err := readUntil(c14, "queue", 2*time.Second)
+	if err != nil {
+		t.Fatalf("new client should receive queue offer: %v", err)
+	}
+	if !strings.Contains(text, "Chat is full") {
+		t.Error("new client should see queue offer with 10 active clients")
+	}
+}
+
+func TestQueuedClientDisconnectSilentlyRemoved(t *testing.T) {
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Queue two clients
+	q1 := connectPipe(s)
+	readUntil(q1, "yes/no", 2*time.Second)
+	fmt.Fprintf(q1, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	q2 := connectPipe(s)
+	defer q2.Close()
+	readUntil(q2, "#2 in the queue", 2*time.Second)
+	fmt.Fprintf(q2, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	if s.GetQueueLength() != 2 {
+		t.Errorf("expected 2 in queue, got %d", s.GetQueueLength())
+	}
+
+	// q1 disconnects
+	q1.Close()
+	time.Sleep(300 * time.Millisecond)
+
+	// q2 should get position update to #1
+	text, _ := readUntil(q2, "#1 in the queue", 2*time.Second)
+	if !strings.Contains(text, "#1 in the queue") {
+		t.Errorf("q2 should be updated to #1, got: %q", text)
+	}
+}
+
+func TestQueueFIFOAdmission(t *testing.T) {
+	// Multiple slots open: queue admits in FIFO order
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Queue 2 clients
+	q1 := connectPipe(s)
+	defer q1.Close()
+	readUntil(q1, "yes/no", 2*time.Second)
+	fmt.Fprintf(q1, "yes\n")
+
+	q2 := connectPipe(s)
+	defer q2.Close()
+	readUntil(q2, "#2 in the queue", 2*time.Second)
+	fmt.Fprintf(q2, "yes\n")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Disconnect first active client
+	conns[0].Close()
+
+	// q1 (first in queue) should be admitted first
+	_, err := readUntil(q1, "[ENTER YOUR NAME]:", 3*time.Second)
+	if err != nil {
+		t.Fatalf("q1 should be admitted first (FIFO): %v", err)
+	}
+
+	// q1 completes onboarding to open possibility for q2
+	fmt.Fprintf(q1, "first_admitted\n")
+	readUntil(q1, "][first_admitted]:", 2*time.Second)
+
+	// Disconnect another active client to admit q2
+	conns[1].Close()
+	_, err = readUntil(q2, "[ENTER YOUR NAME]:", 3*time.Second)
+	if err != nil {
+		t.Fatalf("q2 should be admitted second (FIFO): %v", err)
+	}
+}
+
+func TestQueueInvalidInput(t *testing.T) {
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	c11 := connectPipe(s)
+	defer c11.Close()
+	readUntil(c11, "yes/no", 2*time.Second)
+
+	// Invalid input
+	fmt.Fprintf(c11, "maybe\n")
+	text, err := readUntil(c11, "yes' or 'no'", 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "Invalid input") {
+		t.Errorf("invalid input should get error, got: %q", text)
+	}
+
+	// Still able to respond correctly
+	fmt.Fprintf(c11, "no\n")
+	time.Sleep(200 * time.Millisecond)
+	if s.GetQueueLength() != 0 {
+		t.Error("queue should be empty after 'no'")
+	}
+}
+
+func TestAllActiveLeaveThenQueueAdmits(t *testing.T) {
+	// All 10 active clients leave while a queue exists: queued clients are admitted one at a time
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Queue 2 clients
+	q1 := connectPipe(s)
+	defer q1.Close()
+	readUntil(q1, "yes/no", 2*time.Second)
+	fmt.Fprintf(q1, "yes\n")
+
+	q2 := connectPipe(s)
+	defer q2.Close()
+	readUntil(q2, "#2 in the queue", 2*time.Second)
+	fmt.Fprintf(q2, "yes\n")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// All active clients disconnect
+	for i := 0; i < 10; i++ {
+		conns[i].Close()
+	}
+
+	// First queued client should be admitted
+	_, err := readUntil(q1, "[ENTER YOUR NAME]:", 3*time.Second)
+	if err != nil {
+		t.Fatalf("first queued client should be admitted: %v", err)
+	}
+}
+
+func TestShutdownNotifiesQueuedClients(t *testing.T) {
+	s := New("0")
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	q1 := connectPipe(s)
+	defer q1.Close()
+	readUntil(q1, "yes/no", 2*time.Second)
+	fmt.Fprintf(q1, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	s.Shutdown()
+
+	text, err := readUntil(q1, "shutting down", 2*time.Second)
+	if err != nil {
+		t.Fatalf("queued client should receive shutdown message: %v", err)
+	}
+	if !strings.Contains(text, "Server is shutting down. Goodbye!") {
+		t.Errorf("expected shutdown message, got: %q", text)
+	}
+}

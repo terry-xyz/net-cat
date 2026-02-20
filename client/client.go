@@ -94,6 +94,15 @@ func (c *Client) Done() <-chan struct{} {
 	return c.done
 }
 
+// ResetScanner creates a fresh scanner for the connection.
+// Used after queue admission where the scanner may be in an error state
+// due to a read deadline used to cancel the monitoring goroutine.
+func (c *Client) ResetScanner() {
+	scanner := bufio.NewScanner(c.Conn)
+	scanner.Buffer(make([]byte, 4096), maxLineLength)
+	c.scanner = scanner
+}
+
 func (c *Client) writeLoop() {
 	for {
 		select {
