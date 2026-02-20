@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"net-cat/client"
 	"net-cat/logger"
 	"net-cat/models"
+	"os"
 	"sync"
 	"time"
 )
@@ -48,6 +50,7 @@ func (s *Server) Start() error {
 		Type:      models.MsgServerEvent,
 		Content:   "Server started on port " + s.port,
 	})
+	s.RecoverHistory()
 	s.acceptLoop()
 	return nil
 }
@@ -201,6 +204,60 @@ func (s *Server) BroadcastAll(msg string) {
 	defer s.mu.RUnlock()
 	for _, c := range s.clients {
 		c.Send(msg)
+	}
+}
+
+// RecoverHistory loads today's log file and reconstructs the in-memory history.
+// Only called on startup so that clients connecting after a restart see prior events.
+// Server events are excluded (not user-visible). Corrupt lines are skipped with warnings.
+func (s *Server) RecoverHistory() {
+	if s.Logger == nil {
+		return
+	}
+
+	date := logger.FormatDate(time.Now())
+	path := s.Logger.FilePath(date)
+	if path == "" {
+		return
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Warning: could not open log file for recovery: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
+	corrupt := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) == 0 {
+			continue
+		}
+		msg, err := models.ParseLogLine(line)
+		if err != nil {
+			corrupt++
+			fmt.Fprintf(os.Stderr, "Warning: skipping corrupt log line: %v\n", err)
+			continue
+		}
+		if msg.Type == models.MsgServerEvent {
+			continue
+		}
+		s.AddHistory(msg)
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error reading log file: %v\n", err)
+	}
+
+	if corrupt > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: %d corrupt line(s) skipped during history recovery\n", corrupt)
 	}
 }
 

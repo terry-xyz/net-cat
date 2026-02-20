@@ -1356,3 +1356,539 @@ func TestLoggingEventsSelfContained(t *testing.T) {
 		}
 	}
 }
+
+// ==================== Task 10: Crash Recovery ====================
+
+// newServerWithLoggerDir creates a server with a logger in the specified directory.
+func newServerWithLoggerDir(t *testing.T, logsDir string) *Server {
+	t.Helper()
+	s := New("0")
+	l, err := logger.New(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Logger = l
+	t.Cleanup(func() { l.Close() })
+	return s
+}
+
+func TestRecoveryNoPriorLog(t *testing.T) {
+	// First client of the day with no prior log receives no history, just their prompt.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	s := newServerWithLoggerDir(t, logsDir)
+	s.RecoverHistory()
+
+	if len(s.GetHistory()) != 0 {
+		t.Error("history should be empty when no log file exists")
+	}
+
+	c1 := connectPipe(s)
+	defer c1.Close()
+	text, err := onboard(c1, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should have banner, name prompt, and first prompt only — no history
+	if strings.Contains(text, "has joined") && !strings.Contains(text, "alice has joined") {
+		t.Error("should not see any prior join events")
+	}
+}
+
+func TestRecoveryAfterRestart(t *testing.T) {
+	// After server restart on the same day, a connecting client sees history from before the restart.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	// First "session": create server, send messages, shut down
+	s1 := newServerWithLoggerDir(t, logsDir)
+	c1 := connectPipe(s1)
+	onboard(c1, "alice")
+	fmt.Fprintf(c1, "hello from first session\n")
+	readUntil(c1, "][alice]:", time.Second)
+	c1.Close()
+	time.Sleep(200 * time.Millisecond)
+	s1.Logger.Close()
+
+	// Second "session": new server pointing to same log dir, recover history
+	s2 := newServerWithLoggerDir(t, logsDir)
+	s2.RecoverHistory()
+
+	history := s2.GetHistory()
+	if len(history) == 0 {
+		t.Fatal("recovered history should not be empty")
+	}
+
+	// Verify a connecting client sees the recovered history
+	c2 := connectPipe(s2)
+	defer c2.Close()
+	text, err := onboard(c2, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "hello from first session") {
+		t.Errorf("bob should see message from first session in history, got: %q", text)
+	}
+	if !strings.Contains(text, "alice has joined") {
+		t.Errorf("bob should see alice's join event in history, got: %q", text)
+	}
+}
+
+func TestRecoveryIncludesAllEventTypes(t *testing.T) {
+	// History includes chat messages, join/leave events, name changes, admin actions.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	s1 := newServerWithLoggerDir(t, logsDir)
+	c1 := connectPipe(s1)
+	c2 := connectPipe(s1)
+	onboard(c1, "admin")
+	onboard(c2, "target")
+	readUntil(c1, "target has joined", time.Second)
+
+	// Chat message
+	fmt.Fprintf(c1, "hello chat\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// Name change
+	fmt.Fprintf(c2, "/name target2\n")
+	readUntil(c2, "][target2]:", time.Second)
+
+	// Moderation (mute/unmute)
+	cl := s1.GetClient("admin")
+	cl.Admin = true
+	fmt.Fprintf(c1, "/mute target2\n")
+	readUntil(c1, "][admin]:", time.Second)
+	fmt.Fprintf(c1, "/unmute target2\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// Announcement
+	fmt.Fprintf(c1, "/announce test announcement\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// Leave (target2 disconnects)
+	c2.Close()
+	readUntil(c1, "target2 has left", 2*time.Second)
+
+	c1.Close()
+	time.Sleep(200 * time.Millisecond)
+	s1.Logger.Close()
+
+	// Second session: recover and verify all event types
+	s2 := newServerWithLoggerDir(t, logsDir)
+	s2.RecoverHistory()
+
+	c3 := connectPipe(s2)
+	defer c3.Close()
+	text, err := onboard(c3, "newcomer")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checks := []struct {
+		substr string
+		desc   string
+	}{
+		{"admin has joined", "join event"},
+		{"hello chat", "chat message"},
+		{"target changed their name to target2", "name change"},
+		{"target2 was muted by admin", "mute moderation"},
+		{"target2 was unmuted by admin", "unmute moderation"},
+		{"[ANNOUNCEMENT]: test announcement", "announcement"},
+		{"target2 has left", "leave event"},
+	}
+	for _, check := range checks {
+		if !strings.Contains(text, check.substr) {
+			t.Errorf("recovered history should contain %s (%q), got: %q", check.desc, check.substr, text)
+		}
+	}
+}
+
+func TestRecoveryTimestampsMatchOriginal(t *testing.T) {
+	// Timestamps on recovered entries match the original send time, not the replay time.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	s1 := newServerWithLoggerDir(t, logsDir)
+	c1 := connectPipe(s1)
+	onboard(c1, "alice")
+	fmt.Fprintf(c1, "timed message\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	// Capture the original timestamp from history
+	origHistory := s1.GetHistory()
+	var origTimestamp time.Time
+	for _, msg := range origHistory {
+		if msg.Type == models.MsgChat && msg.Content == "timed message" {
+			origTimestamp = msg.Timestamp
+			break
+		}
+	}
+	if origTimestamp.IsZero() {
+		t.Fatal("could not find original message in history")
+	}
+
+	c1.Close()
+	time.Sleep(200 * time.Millisecond)
+	s1.Logger.Close()
+
+	// Wait briefly so recovery happens at a different time
+	time.Sleep(100 * time.Millisecond)
+
+	// Recover
+	s2 := newServerWithLoggerDir(t, logsDir)
+	s2.RecoverHistory()
+
+	recHistory := s2.GetHistory()
+	for _, msg := range recHistory {
+		if msg.Type == models.MsgChat && msg.Content == "timed message" {
+			// Timestamps are truncated to seconds in log format, so compare at second precision
+			origTS := models.FormatTimestamp(origTimestamp)
+			recTS := models.FormatTimestamp(msg.Timestamp)
+			if origTS != recTS {
+				t.Errorf("recovered timestamp %q does not match original %q", recTS, origTS)
+			}
+			return
+		}
+	}
+	t.Error("recovered history does not contain the timed message")
+}
+
+func TestRecoveryHistoryVisuallyIdentical(t *testing.T) {
+	// History entries are visually identical to live messages — Display() output matches
+	// between the original message and the log-parsed recovered version.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	s1 := newServerWithLoggerDir(t, logsDir)
+	c1 := connectPipe(s1)
+	onboard(c1, "alice")
+	fmt.Fprintf(c1, "identical check\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	c1.Close()
+	time.Sleep(200 * time.Millisecond)
+	s1.Logger.Close()
+
+	// Parse the log file manually and recover into a new server
+	logContent := readLogContent(t, logsDir)
+	lines := strings.Split(strings.TrimSpace(logContent), "\n")
+	var expectedDisplays []string
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		msg, err := models.ParseLogLine(line)
+		if err != nil {
+			continue
+		}
+		if msg.Type == models.MsgServerEvent {
+			continue
+		}
+		expectedDisplays = append(expectedDisplays, msg.Display())
+	}
+
+	s2 := newServerWithLoggerDir(t, logsDir)
+	s2.RecoverHistory()
+	recHistory := s2.GetHistory()
+
+	if len(expectedDisplays) != len(recHistory) {
+		t.Fatalf("count mismatch: expected=%d recovered=%d", len(expectedDisplays), len(recHistory))
+	}
+	for i, msg := range recHistory {
+		if msg.Display() != expectedDisplays[i] {
+			t.Errorf("display mismatch at index %d:\n  expected:  %q\n  recovered: %q", i, expectedDisplays[i], msg.Display())
+		}
+	}
+}
+
+func TestRecoveryThreeRestarts(t *testing.T) {
+	// Server restarted 3 times in one day: history accumulates across all sessions, no duplicates.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	for session := 1; session <= 3; session++ {
+		s := newServerWithLoggerDir(t, logsDir)
+		s.RecoverHistory()
+
+		c := connectPipe(s)
+		name := fmt.Sprintf("user%d", session)
+		onboard(c, name)
+		fmt.Fprintf(c, "message from session %d\n", session)
+		readUntil(c, "]["+name+"]:", time.Second)
+
+		c.Close()
+		time.Sleep(200 * time.Millisecond)
+		s.Logger.Close()
+	}
+
+	// Fourth session: verify all history accumulated
+	s := newServerWithLoggerDir(t, logsDir)
+	s.RecoverHistory()
+
+	c := connectPipe(s)
+	defer c.Close()
+	text, err := onboard(c, "verifier")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for session := 1; session <= 3; session++ {
+		expected := fmt.Sprintf("message from session %d", session)
+		if !strings.Contains(text, expected) {
+			t.Errorf("history should contain %q, got: %q", expected, text)
+		}
+		// Each message should appear exactly once
+		count := strings.Count(text, expected)
+		if count != 1 {
+			t.Errorf("message %q should appear exactly once, got %d times", expected, count)
+		}
+	}
+}
+
+func TestRecoveryJustSentMessageInHistory(t *testing.T) {
+	// Client joins immediately after a message is sent: the just-sent message is in their history.
+	s, _ := newServerWithLogger(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	onboard(c1, "alice")
+
+	fmt.Fprintf(c1, "just sent\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	// Bob joins immediately
+	c2 := connectPipe(s)
+	defer c2.Close()
+	text, err := onboard(c2, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "just sent") {
+		t.Errorf("bob should see the just-sent message in history, got: %q", text)
+	}
+}
+
+func TestRecoveryLargeHistory(t *testing.T) {
+	// Very large history (thousands of entries): recovered in full, no truncation.
+	// Write log entries directly to the file to test recovery at scale.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	os.MkdirAll(logsDir, 0700)
+
+	date := logger.FormatDate(time.Now())
+	logPath := filepath.Join(logsDir, "chat_"+date+".log")
+
+	msgCount := 2000
+	var buf strings.Builder
+	now := time.Now()
+	ts := models.FormatTimestamp(now)
+	buf.WriteString(fmt.Sprintf("[%s] JOIN alice\n", ts))
+	for i := 0; i < msgCount; i++ {
+		buf.WriteString(fmt.Sprintf("[%s] CHAT [alice]:msg_%04d\n", ts, i))
+	}
+	os.WriteFile(logPath, []byte(buf.String()), 0600)
+
+	s := newServerWithLoggerDir(t, logsDir)
+	s.RecoverHistory()
+
+	history := s.GetHistory()
+	// Total: 1 join + 2000 chat = 2001
+	if len(history) != msgCount+1 {
+		t.Errorf("recovered %d entries, expected %d", len(history), msgCount+1)
+	}
+
+	chatCount := 0
+	for _, msg := range history {
+		if msg.Type == models.MsgChat {
+			chatCount++
+		}
+	}
+	if chatCount != msgCount {
+		t.Errorf("recovered %d chat messages, expected %d", chatCount, msgCount)
+	}
+
+	// Verify first and last messages are correct
+	if history[1].Content != "msg_0000" {
+		t.Errorf("first chat message should be msg_0000, got %q", history[1].Content)
+	}
+	lastChat := history[len(history)-1]
+	expected := fmt.Sprintf("msg_%04d", msgCount-1)
+	if lastChat.Content != expected {
+		t.Errorf("last chat message should be %q, got %q", expected, lastChat.Content)
+	}
+}
+
+func TestRecoveryCorruptedLogFile(t *testing.T) {
+	// Corrupted/unreadable log file: server starts with empty history.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	os.MkdirAll(logsDir, 0700)
+
+	// Write a completely corrupt log file
+	date := logger.FormatDate(time.Now())
+	logPath := filepath.Join(logsDir, "chat_"+date+".log")
+	os.WriteFile(logPath, []byte("this is not a valid log line\nneither is this\n"), 0600)
+
+	s := newServerWithLoggerDir(t, logsDir)
+	s.RecoverHistory()
+
+	if len(s.GetHistory()) != 0 {
+		t.Error("fully corrupt log should result in empty history")
+	}
+}
+
+func TestRecoveryPartiallyCorruptedLogFile(t *testing.T) {
+	// Partially corrupted log file: server recovers valid entries and warns about the rest.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	os.MkdirAll(logsDir, 0700)
+
+	date := logger.FormatDate(time.Now())
+	logPath := filepath.Join(logsDir, "chat_"+date+".log")
+
+	// Write a mix of valid and invalid lines
+	validLine := fmt.Sprintf("[%s] CHAT [alice]:hello valid\n", models.FormatTimestamp(time.Now()))
+	content := validLine +
+		"CORRUPT LINE HERE\n" +
+		fmt.Sprintf("[%s] JOIN bob\n", models.FormatTimestamp(time.Now()))
+
+	os.WriteFile(logPath, []byte(content), 0600)
+
+	s := newServerWithLoggerDir(t, logsDir)
+	s.RecoverHistory()
+
+	history := s.GetHistory()
+	if len(history) != 2 {
+		t.Errorf("expected 2 valid entries recovered, got %d", len(history))
+	}
+
+	// Verify recovered entries
+	foundChat := false
+	foundJoin := false
+	for _, msg := range history {
+		if msg.Type == models.MsgChat && msg.Content == "hello valid" {
+			foundChat = true
+		}
+		if msg.Type == models.MsgJoin && msg.Sender == "bob" {
+			foundJoin = true
+		}
+	}
+	if !foundChat {
+		t.Error("should recover valid chat message")
+	}
+	if !foundJoin {
+		t.Error("should recover valid join event")
+	}
+}
+
+func TestRecoveryServerEventsExcluded(t *testing.T) {
+	// Server events (start/stop) are NOT included in recovered user-visible history.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	s1 := newServerWithLoggerDir(t, logsDir)
+	// Log a server event
+	s1.Logger.Log(models.Message{
+		Timestamp: time.Now(),
+		Type:      models.MsgServerEvent,
+		Content:   "Server started on port 8989",
+	})
+	// Log a chat message
+	s1.Logger.Log(models.Message{
+		Timestamp: time.Now(),
+		Type:      models.MsgChat,
+		Sender:    "alice",
+		Content:   "hello",
+	})
+	s1.Logger.Close()
+
+	s2 := newServerWithLoggerDir(t, logsDir)
+	s2.RecoverHistory()
+
+	history := s2.GetHistory()
+	for _, msg := range history {
+		if msg.Type == models.MsgServerEvent {
+			t.Error("server events should be excluded from recovered history")
+		}
+	}
+	if len(history) != 1 {
+		t.Errorf("expected 1 recovered entry (chat only), got %d", len(history))
+	}
+}
+
+func TestRecoveryNilLogger(t *testing.T) {
+	// Server with nil logger: RecoverHistory is a no-op.
+	s := New("0")
+	s.RecoverHistory() // should not panic
+	if len(s.GetHistory()) != 0 {
+		t.Error("nil logger recovery should leave history empty")
+	}
+}
+
+func TestRecoveryPromoteDemoteInHistory(t *testing.T) {
+	// Recovered history includes promote and demote moderation events.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	s1 := newServerWithLoggerDir(t, logsDir)
+	c1 := connectPipe(s1)
+	c2 := connectPipe(s1)
+	onboard(c1, "operator")
+	onboard(c2, "target")
+	readUntil(c1, "target has joined", time.Second)
+
+	// Promote/demote directly
+	cl := s1.GetClient("operator")
+	s1.cmdPromote(cl, "target")
+	readUntil(c2, "promoted", time.Second)
+	s1.cmdDemote(cl, "target")
+	readUntil(c2, "revoked", time.Second)
+
+	c1.Close()
+	c2.Close()
+	time.Sleep(200 * time.Millisecond)
+	s1.Logger.Close()
+
+	// Recover
+	s2 := newServerWithLoggerDir(t, logsDir)
+	s2.RecoverHistory()
+
+	c3 := connectPipe(s2)
+	defer c3.Close()
+	text, _ := onboard(c3, "newcomer")
+	if !strings.Contains(text, "target was promoted by operator") {
+		t.Errorf("should see promote event in recovered history, got: %q", text)
+	}
+	if !strings.Contains(text, "target was demoted by operator") {
+		t.Errorf("should see demote event in recovered history, got: %q", text)
+	}
+}
+
+func TestRecoveryKickBanInHistory(t *testing.T) {
+	// Recovered history includes kick and ban moderation events.
+	logsDir := filepath.Join(t.TempDir(), "logs")
+
+	s1 := newServerWithLoggerDir(t, logsDir)
+	c1 := connectPipe(s1)
+	c2 := connectPipe(s1)
+	c3 := connectPipe(s1)
+	onboard(c1, "admin")
+	onboard(c2, "victim1")
+	onboard(c3, "victim2")
+	readUntil(c1, "victim2 has joined", time.Second)
+
+	cl := s1.GetClient("admin")
+	cl.Admin = true
+
+	fmt.Fprintf(c1, "/kick victim1\n")
+	readUntil(c1, "][admin]:", time.Second)
+	fmt.Fprintf(c1, "/ban victim2\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	c1.Close()
+	time.Sleep(200 * time.Millisecond)
+	s1.Logger.Close()
+
+	// Recover
+	s2 := newServerWithLoggerDir(t, logsDir)
+	s2.RecoverHistory()
+
+	c4 := connectPipe(s2)
+	defer c4.Close()
+	text, _ := onboard(c4, "newcomer")
+	if !strings.Contains(text, "victim1 was kicked by admin") {
+		t.Errorf("should see kick event in recovered history, got: %q", text)
+	}
+	if !strings.Contains(text, "victim2 was banned by admin") {
+		t.Errorf("should see ban event in recovered history, got: %q", text)
+	}
+}
