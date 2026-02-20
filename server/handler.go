@@ -1,0 +1,583 @@
+package server
+
+import (
+	"fmt"
+	"net"
+	"net-cat/client"
+	"net-cat/cmd"
+	"net-cat/models"
+	"strings"
+	"time"
+)
+
+// WelcomeBanner is the exact ASCII art sent on first connect (no trailing prompt).
+const WelcomeBanner = "Welcome to TCP-Chat!\n" +
+	"         _nnnn_\n" +
+	"        dGGGGMMb\n" +
+	"       @p~qp~~qMb\n" +
+	"       M|@||@) M|\n" +
+	"       @,----.JM|\n" +
+	"      JS^\\__/  qKL\n" +
+	"     dZP        qKRb\n" +
+	"    dZP          qKKb\n" +
+	"   fZP            SMMb\n" +
+	"   HZM            MMMM\n" +
+	"   FqM            MMMM\n" +
+	" __| \".        |\\dS\"qML\n" +
+	" |    `.       | `' \\Zq\n" +
+	"_)      \\.___.,|     .'\n" +
+	"\\____   )MMMMMP|   .'\n" +
+	"     `-'       `--'\n"
+
+// NamePrompt is re-sent after every failed validation attempt.
+const NamePrompt = "[ENTER YOUR NAME]:"
+
+// handleConnection manages one TCP connection through onboarding, messaging, and cleanup.
+func (s *Server) handleConnection(conn net.Conn) {
+	c := client.NewClient(conn)
+
+	// Send welcome banner + name prompt
+	c.Send(WelcomeBanner + NamePrompt)
+
+	// --- Name validation loop (infinite retries) ---
+	registered := false
+	for {
+		name, err := c.ReadLine()
+		if err != nil {
+			c.Close()
+			return
+		}
+
+		if valErr := ValidateName(name); valErr != nil {
+			c.Send(valErr.Error() + "\n" + NamePrompt)
+			continue
+		}
+		if s.IsReservedName(name) {
+			c.Send("Name '" + name + "' is reserved.\n" + NamePrompt)
+			continue
+		}
+		if !s.RegisterClient(c, name) {
+			c.Send("Name is already taken.\n" + NamePrompt)
+			continue
+		}
+		registered = true
+		break
+	}
+	if !registered {
+		c.Close()
+		return
+	}
+
+	// Cleanup runs on any exit from this point (disconnect, /quit, kick, etc.)
+	defer func() {
+		username := c.Username
+		switch c.DisconnectReason {
+		case "kicked", "banned":
+			// moderation handler already removed from map + broadcast
+		default:
+			s.RemoveClient(username)
+			leaveMsg := models.Message{
+				Timestamp: time.Now(),
+				Sender:    username,
+				Type:      models.MsgLeave,
+				Extra:     "voluntary",
+			}
+			s.AddHistory(leaveMsg)
+			s.Broadcast(models.FormatLeave(username)+"\n", username)
+		}
+		c.Close()
+	}()
+
+	// Deliver history
+	for _, msg := range s.GetHistory() {
+		c.Send(msg.Display() + "\n")
+	}
+
+	// First prompt
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+
+	// Broadcast join
+	joinMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    c.Username,
+		Type:      models.MsgJoin,
+	}
+	s.AddHistory(joinMsg)
+	s.Broadcast(models.FormatJoin(c.Username)+"\n", c.Username)
+
+	// --- Message loop ---
+	for {
+		line, err := c.ReadLine()
+		if err != nil {
+			return
+		}
+		cmdName, args, isCmd := cmd.ParseCommand(line)
+		if isCmd {
+			if s.dispatchCommand(c, cmdName, args) {
+				return // /quit
+			}
+			continue
+		}
+		s.handleChatMessage(c, line)
+	}
+}
+
+// ---------- name validation ----------
+
+// ValidateName checks format rules (no uniqueness – that is checked during registration).
+func ValidateName(name string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("Name cannot be empty.")
+	}
+	allWhitespace := true
+	for _, b := range []byte(name) {
+		if b != ' ' && b != '\t' && b != '\r' && b != '\n' {
+			allWhitespace = false
+			break
+		}
+	}
+	if allWhitespace {
+		return fmt.Errorf("Name cannot be empty.")
+	}
+	for _, b := range []byte(name) {
+		if b == ' ' {
+			return fmt.Errorf("Name cannot contain spaces.")
+		}
+	}
+	if len(name) > 32 {
+		return fmt.Errorf("Name too long (max 32 characters).")
+	}
+	for _, b := range []byte(name) {
+		if b < 0x21 || b > 0x7E {
+			return fmt.Errorf("Name must contain only printable characters.")
+		}
+	}
+	return nil
+}
+
+// ---------- chat messages ----------
+
+func (s *Server) handleChatMessage(c *client.Client, line string) {
+	if len(strings.TrimSpace(line)) == 0 {
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if len(line) > 2048 {
+		c.Send("Message too long (max 2048 characters).\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if c.Muted {
+		c.Send("You are muted.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	now := time.Now()
+	msg := models.Message{
+		Timestamp: now,
+		Sender:    c.Username,
+		Content:   line,
+		Type:      models.MsgChat,
+	}
+	s.AddHistory(msg)
+	s.Broadcast(msg.Display()+"\n", c.Username)
+	c.LastActivity = now
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- command dispatch ----------
+
+// dispatchCommand routes a parsed command. Returns true when the caller should exit (/quit).
+func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
+	def, exists := cmd.Commands[cmdName]
+	if !exists {
+		c.Send("Unknown command: /" + cmdName + ". Use /help to see available commands.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return false
+	}
+	clientPriv := cmd.GetPrivilegeLevel(c.Admin, false)
+	if def.MinPriv > clientPriv {
+		c.Send("Insufficient privileges.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return false
+	}
+	switch cmdName {
+	case "quit":
+		return true
+	case "list":
+		s.cmdList(c)
+	case "help":
+		s.cmdHelp(c)
+	case "name":
+		s.cmdName(c, args)
+	case "whisper":
+		s.cmdWhisper(c, args)
+	case "kick":
+		s.cmdKick(c, args)
+	case "ban":
+		s.cmdBan(c, args)
+	case "mute":
+		s.cmdMute(c, args)
+	case "unmute":
+		s.cmdUnmute(c, args)
+	case "announce":
+		s.cmdAnnounce(c, args)
+	case "promote":
+		s.cmdPromote(c, args)
+	case "demote":
+		s.cmdDemote(c, args)
+	}
+	return false
+}
+
+// ---------- /list ----------
+
+func (s *Server) cmdList(c *client.Client) {
+	s.mu.RLock()
+	type entry struct {
+		name string
+		idle time.Duration
+	}
+	entries := make([]entry, 0, len(s.clients))
+	for n, cl := range s.clients {
+		entries = append(entries, entry{name: n, idle: time.Since(cl.LastActivity).Truncate(time.Second)})
+	}
+	s.mu.RUnlock()
+
+	// simple insertion sort (no sort package allowed)
+	for i := 1; i < len(entries); i++ {
+		key := entries[i]
+		j := i - 1
+		for j >= 0 && entries[j].name > key.name {
+			entries[j+1] = entries[j]
+			j--
+		}
+		entries[j+1] = key
+	}
+
+	c.Send("Connected clients:\n")
+	for _, e := range entries {
+		c.Send(fmt.Sprintf("  %s (idle: %s)\n", e.name, e.idle.String()))
+	}
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /help (role-aware) ----------
+
+func (s *Server) cmdHelp(c *client.Client) {
+	priv := cmd.GetPrivilegeLevel(c.Admin, false)
+	c.Send("Available commands:\n")
+	for _, name := range cmd.CommandOrder {
+		def := cmd.Commands[name]
+		if def.MinPriv <= priv {
+			c.Send(fmt.Sprintf("  %-30s %s\n", def.Usage, def.Description))
+		}
+	}
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /name ----------
+
+func (s *Server) cmdName(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Usage: /name <newname>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	newName := args
+	if err := ValidateName(newName); err != nil {
+		c.Send(err.Error() + "\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if s.IsReservedName(newName) {
+		c.Send("Name '" + newName + "' is reserved.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if newName == c.Username {
+		c.Send("You already have that name.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	oldName := c.Username
+	if !s.RenameClient(c, oldName, newName) {
+		c.Send("Name is already taken.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	nameMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    newName,
+		Type:      models.MsgNameChange,
+		Extra:     oldName,
+	}
+	s.AddHistory(nameMsg)
+	s.BroadcastAll(models.FormatNameChange(oldName, newName) + "\n")
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /whisper ----------
+
+func (s *Server) cmdWhisper(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Missing recipient. Usage: /whisper <name> <message>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	idx := strings.IndexByte(args, ' ')
+	if idx < 0 {
+		c.Send("Missing message. Usage: /whisper <name> <message>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	recipient := args[:idx]
+	message := strings.TrimSpace(args[idx+1:])
+	if len(strings.TrimSpace(message)) == 0 {
+		c.Send("Missing message. Usage: /whisper <name> <message>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if len(message) > 2048 {
+		c.Send("Message too long (max 2048 characters).\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if recipient == c.Username {
+		c.Send("Cannot whisper to yourself.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	target := s.GetClient(recipient)
+	if target == nil {
+		c.Send("User '" + recipient + "' not found. Use /list to see connected users.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	now := time.Now()
+	target.Send(models.FormatWhisperReceive(now, c.Username, message) + "\n")
+	c.Send(models.FormatWhisperSend(now, recipient, message) + "\n")
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /kick ----------
+
+func (s *Server) cmdKick(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Missing target. Usage: /kick <name>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		c.Send("User '" + args + "' not found.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	target.DisconnectReason = "kicked"
+	s.RemoveClient(args)
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "kicked",
+		Type:      models.MsgModeration,
+		Extra:     c.Username,
+	}
+	s.AddHistory(modMsg)
+	s.Broadcast(models.FormatModeration(args, "kicked", c.Username)+"\n", "")
+	target.Send("You have been kicked by " + c.Username + ".\n")
+	target.Close()
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /ban ----------
+
+func (s *Server) cmdBan(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Missing target. Usage: /ban <name>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		c.Send("User '" + args + "' not found.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	target.DisconnectReason = "banned"
+	s.RemoveClient(args)
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "banned",
+		Type:      models.MsgModeration,
+		Extra:     c.Username,
+	}
+	s.AddHistory(modMsg)
+	s.Broadcast(models.FormatModeration(args, "banned", c.Username)+"\n", "")
+	target.Send("You have been banned by " + c.Username + ".\n")
+	target.Close()
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /mute ----------
+
+func (s *Server) cmdMute(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Missing target. Usage: /mute <name>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		c.Send("User '" + args + "' not found.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if target.Muted {
+		c.Send(args + " is already muted.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	target.Muted = true
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "muted",
+		Type:      models.MsgModeration,
+		Extra:     c.Username,
+	}
+	s.AddHistory(modMsg)
+	s.BroadcastAll(models.FormatModeration(args, "muted", c.Username) + "\n")
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /unmute ----------
+
+func (s *Server) cmdUnmute(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Missing target. Usage: /unmute <name>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		c.Send("User '" + args + "' not found.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if !target.Muted {
+		c.Send(args + " is not muted.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+
+	target.Muted = false
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "unmuted",
+		Type:      models.MsgModeration,
+		Extra:     c.Username,
+	}
+	s.AddHistory(modMsg)
+	s.BroadcastAll(models.FormatModeration(args, "unmuted", c.Username) + "\n")
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /announce ----------
+
+func (s *Server) cmdAnnounce(c *client.Client, args string) {
+	if len(strings.TrimSpace(args)) == 0 {
+		c.Send("Usage: /announce <message>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	announceMsg := models.Message{
+		Timestamp: time.Now(),
+		Content:   args,
+		Type:      models.MsgAnnouncement,
+		Extra:     c.Username,
+	}
+	s.AddHistory(announceMsg)
+	s.BroadcastAll(models.FormatAnnouncement(args) + "\n")
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /promote ----------
+
+func (s *Server) cmdPromote(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Missing target. Usage: /promote <name>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		c.Send("User '" + args + "' not found.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if target.Admin {
+		c.Send(args + " is already an admin.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target.Admin = true
+	target.Send("You have been promoted to admin.\n")
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "promoted",
+		Type:      models.MsgModeration,
+		Extra:     c.Username,
+	}
+	s.AddHistory(modMsg)
+	c.Send(args + " has been promoted to admin.\n")
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /demote ----------
+
+func (s *Server) cmdDemote(c *client.Client, args string) {
+	if args == "" {
+		c.Send("Missing target. Usage: /demote <name>\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		c.Send("User '" + args + "' not found.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	if !target.Admin {
+		c.Send(args + " is not an admin.\n")
+		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		return
+	}
+	target.Admin = false
+	target.Send("Your admin privileges have been revoked.\n")
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "demoted",
+		Type:      models.MsgModeration,
+		Extra:     c.Username,
+	}
+	s.AddHistory(modMsg)
+	c.Send(args + " has been demoted.\n")
+	c.Send(models.FormatPrompt(time.Now(), c.Username))
+}
