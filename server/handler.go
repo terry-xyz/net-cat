@@ -36,6 +36,15 @@ const NamePrompt = "[ENTER YOUR NAME]:"
 // handleConnection manages one TCP connection through onboarding, messaging, and cleanup.
 func (s *Server) handleConnection(conn net.Conn) {
 	c := client.NewClient(conn)
+	s.TrackClient(c)
+	defer s.UntrackClient(c)
+
+	// Reject connections that arrive during shutdown
+	if s.IsShuttingDown() {
+		c.Send("Server is shutting down. Goodbye!\n")
+		c.Close()
+		return
+	}
 
 	// Check capacity before sending banner
 	if !s.checkOrQueue(c) {
@@ -157,6 +166,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 // If the server is at capacity, offers a queue position and blocks until
 // admitted, declined, or the server shuts down.
 func (s *Server) checkOrQueue(c *client.Client) bool {
+	if s.IsShuttingDown() {
+		return false
+	}
+
 	s.mu.RLock()
 	activeCount := len(s.clients)
 	s.mu.RUnlock()

@@ -2278,6 +2278,7 @@ func TestAllActiveLeaveThenQueueAdmits(t *testing.T) {
 
 func TestShutdownNotifiesQueuedClients(t *testing.T) {
 	s := New("0")
+	s.ShutdownTimeout = 300 * time.Millisecond
 	conns := make([]net.Conn, 10)
 	for i := 0; i < 10; i++ {
 		conns[i] = connectPipe(s)
@@ -2291,7 +2292,9 @@ func TestShutdownNotifiesQueuedClients(t *testing.T) {
 	fmt.Fprintf(q1, "yes\n")
 	time.Sleep(100 * time.Millisecond)
 
-	s.Shutdown()
+	// Run Shutdown concurrently so we can read the goodbye message
+	// (net.Pipe writes block until the corresponding read occurs)
+	go s.Shutdown()
 
 	text, err := readUntil(q1, "shutting down", 2*time.Second)
 	if err != nil {
@@ -2299,5 +2302,183 @@ func TestShutdownNotifiesQueuedClients(t *testing.T) {
 	}
 	if !strings.Contains(text, "Server is shutting down. Goodbye!") {
 		t.Errorf("expected shutdown message, got: %q", text)
+	}
+}
+
+// ==================== Task 12: Graceful Shutdown ====================
+
+func TestShutdownActiveClientsReceiveGoodbye(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 300 * time.Millisecond
+
+	c1 := connectPipe(s)
+	defer c1.Close()
+	onboard(c1, "alice")
+
+	c2 := connectPipe(s)
+	defer c2.Close()
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	go s.Shutdown()
+
+	text1, err := readUntil(c1, "shutting down", 2*time.Second)
+	if err != nil {
+		t.Fatalf("alice should receive shutdown message: %v", err)
+	}
+	if !strings.Contains(text1, "Server is shutting down. Goodbye!") {
+		t.Errorf("expected shutdown message for alice, got: %q", text1)
+	}
+
+	text2, err := readUntil(c2, "shutting down", 2*time.Second)
+	if err != nil {
+		t.Fatalf("bob should receive shutdown message: %v", err)
+	}
+	if !strings.Contains(text2, "Server is shutting down. Goodbye!") {
+		t.Errorf("expected shutdown message for bob, got: %q", text2)
+	}
+}
+
+func TestShutdownForceClosesAfterTimeout(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 100 * time.Millisecond
+
+	c1 := connectPipe(s)
+	defer c1.Close()
+	onboard(c1, "alice")
+
+	// Run Shutdown concurrently; read the goodbye to unblock the pipe write
+	done := make(chan struct{})
+	go func() {
+		s.Shutdown()
+		close(done)
+	}()
+
+	// Read the goodbye (unblocks the synchronous pipe write)
+	readUntil(c1, "shutting down", 2*time.Second)
+
+	// Shutdown should complete within a reasonable time after timeout
+	select {
+	case <-done:
+		// Good — Shutdown completed
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown should complete after force-closing connections")
+	}
+}
+
+func TestShutdownLoggedToFile(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	s.ShutdownTimeout = 100 * time.Millisecond
+
+	c1 := connectPipe(s)
+	onboard(c1, "alice")
+
+	done := make(chan struct{})
+	go func() {
+		s.Shutdown()
+		close(done)
+	}()
+
+	// Read the goodbye to unblock the pipe write
+	readUntil(c1, "shutting down", 2*time.Second)
+	c1.Close()
+	<-done
+
+	content := readLogContent(t, logsDir)
+	if !strings.Contains(content, "Server shutting down") {
+		t.Errorf("shutdown event should be in log, got: %q", content)
+	}
+}
+
+func TestShutdownNoClients(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 100 * time.Millisecond
+
+	done := make(chan struct{})
+	go func() {
+		s.Shutdown()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good — clean shutdown with no clients
+	case <-time.After(3 * time.Second):
+		t.Fatal("Shutdown with no clients should complete quickly")
+	}
+}
+
+func TestShutdownIdempotent(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 100 * time.Millisecond
+
+	// Multiple calls to Shutdown should not panic or hang
+	done := make(chan struct{})
+	go func() {
+		s.Shutdown()
+		s.Shutdown()
+		s.Shutdown()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good
+	case <-time.After(3 * time.Second):
+		t.Fatal("Multiple Shutdown calls should not hang")
+	}
+}
+
+func TestShutdownNamePromptClientsReceiveGoodbye(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 300 * time.Millisecond
+
+	// Client at name prompt (not yet registered)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	readUntil(c1, "[ENTER YOUR NAME]:", 2*time.Second)
+
+	// Active client
+	c2 := connectPipe(s)
+	defer c2.Close()
+	onboard(c2, "active")
+
+	go s.Shutdown()
+
+	// Name-prompt client should also receive goodbye
+	text, err := readUntil(c1, "shutting down", 2*time.Second)
+	if err != nil {
+		t.Fatalf("name-prompt client should receive shutdown message: %v", err)
+	}
+	if !strings.Contains(text, "Server is shutting down. Goodbye!") {
+		t.Errorf("expected shutdown message, got: %q", text)
+	}
+
+	// Active client should also get it
+	text2, err := readUntil(c2, "shutting down", 2*time.Second)
+	if err != nil {
+		t.Fatalf("active client should receive shutdown message: %v", err)
+	}
+	if !strings.Contains(text2, "Server is shutting down. Goodbye!") {
+		t.Errorf("expected shutdown message for active client, got: %q", text2)
+	}
+}
+
+func TestShutdownBeforeAnyClientConnects(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 100 * time.Millisecond
+
+	// Shutdown with no clients or listener should be clean
+	done := make(chan struct{})
+	go func() {
+		s.Shutdown()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good
+	case <-time.After(3 * time.Second):
+		t.Fatal("Shutdown before any connects should complete quickly")
 	}
 }

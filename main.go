@@ -35,6 +35,10 @@ func main() {
 	go func() {
 		<-sigChan
 		srv.Shutdown()
+		// Drain subsequent signals so the default handler does not terminate
+		// the process before shutdown completes
+		for range sigChan {
+		}
 	}()
 
 	if err := srv.Start(); err != nil {

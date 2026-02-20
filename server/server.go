@@ -20,27 +20,32 @@ type QueueEntry struct {
 
 // Server manages the TCP listener, connected clients, and chat history.
 type Server struct {
-	port          string
-	listener      net.Listener
-	clients       map[string]*client.Client
-	mu            sync.RWMutex
-	history       []models.Message
-	reservedNames map[string]bool
-	quit          chan struct{}
-	shutdownOnce  sync.Once
-	Logger        *logger.Logger
-	queue         []*QueueEntry // protected by mu
+	port            string
+	listener        net.Listener
+	clients         map[string]*client.Client
+	allClients      map[*client.Client]struct{} // all connections in any phase (name-prompt, queued, active)
+	mu              sync.RWMutex
+	history         []models.Message
+	reservedNames   map[string]bool
+	quit            chan struct{}
+	shutdownOnce    sync.Once
+	shutdownDone    chan struct{}
+	ShutdownTimeout time.Duration // defaults to 5s; override in tests for faster execution
+	Logger          *logger.Logger
+	queue           []*QueueEntry // protected by mu
 }
 
 // New creates a server that will listen on the given port.
 func New(port string) *Server {
 	return &Server{
-		port:    port,
-		clients: make(map[string]*client.Client),
+		port:       port,
+		clients:    make(map[string]*client.Client),
+		allClients: make(map[*client.Client]struct{}),
 		reservedNames: map[string]bool{
 			"Server": true,
 		},
-		quit: make(chan struct{}),
+		quit:         make(chan struct{}),
+		shutdownDone: make(chan struct{}),
 	}
 }
 
@@ -59,34 +64,63 @@ func (s *Server) Start() error {
 	})
 	s.RecoverHistory()
 	s.acceptLoop()
+	<-s.shutdownDone
 	return nil
 }
 
-// Shutdown sends the goodbye message and closes the listener to stop accepting.
+// Shutdown sends the goodbye message, waits for clients to disconnect, then
+// force-closes remaining connections. Idempotent via sync.Once.
 func (s *Server) Shutdown() {
 	s.shutdownOnce.Do(func() {
 		close(s.quit)
+
+		// Stop accepting new connections
+		if s.listener != nil {
+			s.listener.Close()
+		}
+
+		// Send goodbye to ALL tracked connections (active, queued, and name-prompt)
 		s.mu.RLock()
-		for _, c := range s.clients {
+		for c := range s.allClients {
 			c.Send("Server is shutting down. Goodbye!\n")
 		}
-		// Also notify queued clients
-		for _, e := range s.queue {
-			e.client.Send("Server is shutting down. Goodbye!\n")
+		s.mu.RUnlock()
+
+		// Wait up to ShutdownTimeout for clients to disconnect voluntarily
+		timeout := s.ShutdownTimeout
+		if timeout == 0 {
+			timeout = 5 * time.Second
+		}
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			s.mu.RLock()
+			remaining := len(s.allClients)
+			s.mu.RUnlock()
+			if remaining == 0 {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		// Force-close any remaining connections
+		s.mu.RLock()
+		for c := range s.allClients {
+			c.Close()
 		}
 		s.mu.RUnlock()
-		// Brief pause so write goroutines can flush the goodbye
-		time.Sleep(50 * time.Millisecond)
-		// Log shutdown synchronously before process exit
+
+		// Wait for handler goroutine cleanup (leave logging, untracking)
+		time.Sleep(200 * time.Millisecond)
+
+		// Log shutdown synchronously — guaranteed before process exit
 		s.Logger.Log(models.Message{
 			Timestamp: time.Now(),
 			Type:      models.MsgServerEvent,
 			Content:   "Server shutting down",
 		})
 		s.Logger.Close()
-		if s.listener != nil {
-			s.listener.Close()
-		}
+
+		close(s.shutdownDone)
 	})
 }
 
@@ -103,6 +137,22 @@ func (s *Server) acceptLoop() {
 		}
 		go s.handleConnection(conn)
 	}
+}
+
+// ---------- connection tracking ----------
+
+// TrackClient registers a connection in allClients for shutdown notification.
+func (s *Server) TrackClient(c *client.Client) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allClients[c] = struct{}{}
+}
+
+// UntrackClient removes a connection from allClients.
+func (s *Server) UntrackClient(c *client.Client) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.allClients, c)
 }
 
 // ---------- client map ----------
@@ -295,7 +345,11 @@ func (s *Server) removeFromQueue(entry *QueueEntry) {
 
 // admitFromQueue admits the first valid queued client, if any.
 // Called after a registered client departs to fill the opened slot.
+// No-op during shutdown to prevent admitting clients into a closing server.
 func (s *Server) admitFromQueue() {
+	if s.IsShuttingDown() {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for len(s.queue) > 0 {
