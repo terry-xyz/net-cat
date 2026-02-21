@@ -89,6 +89,7 @@ func (s *Server) Start() error {
 	})
 	s.LoadAdmins()
 	s.RecoverHistory()
+	go s.startMidnightWatcher()
 	s.acceptLoop()
 	<-s.shutdownDone
 	return nil
@@ -264,6 +265,14 @@ func (s *Server) GetHistory() []models.Message {
 	out := make([]models.Message, len(s.history))
 	copy(out, s.history)
 	return out
+}
+
+// ClearHistory removes all in-memory history entries.
+// Called at midnight to reset history for the new calendar day.
+func (s *Server) ClearHistory() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.history = s.history[:0]
 }
 
 // recordEvent adds the message to in-memory history and writes it to the log file.
@@ -637,6 +646,29 @@ func (s *Server) startHeartbeat(c *client.Client) {
 		case <-c.Done():
 			return
 		case <-s.quit:
+			return
+		}
+	}
+}
+
+// ---------- midnight log rotation ----------
+
+// startMidnightWatcher runs a goroutine that detects day boundaries and resets
+// in-memory history at midnight. The logger already handles file switching based
+// on message timestamps (via ensureFile), so this only needs to clear the history
+// so that clients joining after midnight see only the new day's events.
+func (s *Server) startMidnightWatcher() {
+	for {
+		now := time.Now()
+		nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+		duration := nextMidnight.Sub(now)
+
+		timer := time.NewTimer(duration)
+		select {
+		case <-timer.C:
+			s.ClearHistory()
+		case <-s.quit:
+			timer.Stop()
 			return
 		}
 	}

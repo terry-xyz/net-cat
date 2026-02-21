@@ -387,10 +387,152 @@ func TestFormatDate(t *testing.T) {
 	}
 }
 
+func TestLogDayBoundarySwitchesFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	l, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	// Log a message with a "yesterday" timestamp
+	yesterday := time.Date(2026, 2, 20, 23, 59, 59, 0, time.Local)
+	l.Log(models.Message{
+		Timestamp: yesterday,
+		Type:      models.MsgChat,
+		Sender:    "alice",
+		Content:   "before midnight",
+	})
+
+	// Log a message with a "today" timestamp (next day)
+	today := time.Date(2026, 2, 21, 0, 0, 1, 0, time.Local)
+	l.Log(models.Message{
+		Timestamp: today,
+		Type:      models.MsgChat,
+		Sender:    "alice",
+		Content:   "after midnight",
+	})
+
+	// Verify yesterday's file has only the "before midnight" message
+	yesterdayContent := readFileForDate(t, dir, "2026-02-20")
+	if !strings.Contains(yesterdayContent, "before midnight") {
+		t.Error("yesterday's log should contain 'before midnight'")
+	}
+	if strings.Contains(yesterdayContent, "after midnight") {
+		t.Error("yesterday's log should NOT contain 'after midnight'")
+	}
+
+	// Verify today's file has only the "after midnight" message
+	todayContent := readFileForDate(t, dir, "2026-02-21")
+	if !strings.Contains(todayContent, "after midnight") {
+		t.Error("today's log should contain 'after midnight'")
+	}
+	if strings.Contains(todayContent, "before midnight") {
+		t.Error("today's log should NOT contain 'before midnight'")
+	}
+}
+
+func TestLogDayBoundaryNoLostEntries(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	l, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	// Log messages on both sides of midnight
+	day1 := time.Date(2026, 3, 15, 23, 59, 58, 0, time.Local)
+	day2 := time.Date(2026, 3, 16, 0, 0, 2, 0, time.Local)
+
+	messages := []struct {
+		ts   time.Time
+		text string
+	}{
+		{day1, "msg1"},
+		{day1.Add(time.Second), "msg2"},
+		{day2, "msg3"},
+		{day2.Add(time.Second), "msg4"},
+	}
+
+	for _, m := range messages {
+		l.Log(models.Message{
+			Timestamp: m.ts,
+			Type:      models.MsgChat,
+			Sender:    "user",
+			Content:   m.text,
+		})
+	}
+
+	// Count total entries across both files
+	d1Content := readFileForDate(t, dir, "2026-03-15")
+	d2Content := readFileForDate(t, dir, "2026-03-16")
+
+	d1Lines := strings.Split(strings.TrimSpace(d1Content), "\n")
+	d2Lines := strings.Split(strings.TrimSpace(d2Content), "\n")
+
+	total := len(d1Lines) + len(d2Lines)
+	if total != 4 {
+		t.Errorf("expected 4 total entries across both files, got %d (day1: %d, day2: %d)",
+			total, len(d1Lines), len(d2Lines))
+	}
+}
+
+func TestLogPriorDayFileUnmodified(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	l, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write to a prior day
+	priorDay := time.Date(2026, 2, 19, 12, 0, 0, 0, time.Local)
+	l.Log(models.Message{
+		Timestamp: priorDay,
+		Type:      models.MsgChat,
+		Sender:    "alice",
+		Content:   "old message",
+	})
+	l.Close()
+
+	// Record the prior day's file content
+	priorContent := readFileForDate(t, dir, "2026-02-19")
+
+	// Create a new logger (simulate restart) and write to current day
+	l2, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentDay := time.Date(2026, 2, 21, 12, 0, 0, 0, time.Local)
+	l2.Log(models.Message{
+		Timestamp: currentDay,
+		Type:      models.MsgChat,
+		Sender:    "bob",
+		Content:   "new message",
+	})
+	l2.Close()
+
+	// Prior day's file should be unchanged
+	priorContentAfter := readFileForDate(t, dir, "2026-02-19")
+	if priorContent != priorContentAfter {
+		t.Error("prior day's log file was modified when writing to current day")
+	}
+}
+
 // readFile reads the log file for the given date from the logs directory.
 func readFile(t *testing.T, logsDir string, ts time.Time) string {
 	t.Helper()
 	path := filepath.Join(logsDir, "chat_"+FormatDate(ts)+".log")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("could not read log file %s: %v", path, err)
+	}
+	return string(data)
+}
+
+// readFileForDate reads the log file for a specific date string (YYYY-MM-DD).
+func readFileForDate(t *testing.T, logsDir, date string) string {
+	t.Helper()
+	path := filepath.Join(logsDir, "chat_"+date+".log")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("could not read log file %s: %v", path, err)

@@ -5450,3 +5450,302 @@ func TestHeartbeatStopsDuringShutdown(t *testing.T) {
 		t.Errorf("expected shutdown message, got: %q", text)
 	}
 }
+
+// ==================== Task 23: Midnight Log Rotation ====================
+
+func TestMidnightClearHistoryResetsInMemory(t *testing.T) {
+	// ClearHistory() empties in-memory history so new joiners after midnight see only new-day events.
+	s := New("0")
+
+	// Add some history entries
+	s.AddHistory(models.Message{Timestamp: time.Now(), Type: models.MsgChat, Sender: "alice", Content: "hello"})
+	s.AddHistory(models.Message{Timestamp: time.Now(), Type: models.MsgJoin, Sender: "bob"})
+	s.AddHistory(models.Message{Timestamp: time.Now(), Type: models.MsgChat, Sender: "bob", Content: "world"})
+
+	if len(s.GetHistory()) != 3 {
+		t.Fatalf("expected 3 history entries before clear, got %d", len(s.GetHistory()))
+	}
+
+	s.ClearHistory()
+
+	if len(s.GetHistory()) != 0 {
+		t.Errorf("expected 0 history entries after ClearHistory, got %d", len(s.GetHistory()))
+	}
+}
+
+func TestMidnightHistoryResetNewJoinerSeesOnlyNewDay(t *testing.T) {
+	// After midnight rotation, a new client joining should see only events after midnight.
+	s, _ := newServerWithLogger(t)
+
+	// Connect alice before "midnight"
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+	fmt.Fprintf(alice, "pre-midnight message\n")
+	readUntil(alice, "][alice]:", time.Second)
+
+	// Simulate midnight rotation
+	s.ClearHistory()
+
+	// Alice sends a post-midnight message
+	fmt.Fprintf(alice, "post-midnight message\n")
+	readUntil(alice, "][alice]:", time.Second)
+
+	// Bob joins after midnight rotation
+	bob := connectPipe(s)
+	defer bob.Close()
+	text, _ := onboard(bob, "bob")
+
+	// Bob should see the post-midnight message but NOT the pre-midnight message
+	if strings.Contains(text, "pre-midnight message") {
+		t.Error("new joiner should NOT see pre-midnight messages after history reset")
+	}
+	if !strings.Contains(text, "post-midnight message") {
+		t.Error("new joiner should see post-midnight messages")
+	}
+}
+
+func TestMidnightLoggerSwitchesFileOnDateChange(t *testing.T) {
+	// Activity before midnight goes to the old file; activity after midnight goes to the new file.
+	// The logger routes based on message timestamp, so messages with different dates go to different files.
+	tmpDir := t.TempDir()
+	logsDir := filepath.Join(tmpDir, "logs")
+	l, err := logger.New(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	yesterday := time.Date(2026, 3, 15, 23, 59, 59, 0, time.Local)
+	today := time.Date(2026, 3, 16, 0, 0, 1, 0, time.Local)
+
+	// Log before midnight
+	l.Log(models.Message{Timestamp: yesterday, Type: models.MsgChat, Sender: "alice", Content: "before midnight"})
+	// Log after midnight
+	l.Log(models.Message{Timestamp: today, Type: models.MsgChat, Sender: "alice", Content: "after midnight"})
+
+	l.Close()
+
+	// Check yesterday's file
+	yesterdayPath := filepath.Join(logsDir, "chat_2026-03-15.log")
+	data, err := os.ReadFile(yesterdayPath)
+	if err != nil {
+		t.Fatalf("could not read yesterday's log: %v", err)
+	}
+	if !strings.Contains(string(data), "before midnight") {
+		t.Error("yesterday's log should contain 'before midnight'")
+	}
+	if strings.Contains(string(data), "after midnight") {
+		t.Error("yesterday's log should NOT contain 'after midnight'")
+	}
+
+	// Check today's file
+	todayPath := filepath.Join(logsDir, "chat_2026-03-16.log")
+	data, err = os.ReadFile(todayPath)
+	if err != nil {
+		t.Fatalf("could not read today's log: %v", err)
+	}
+	if !strings.Contains(string(data), "after midnight") {
+		t.Error("today's log should contain 'after midnight'")
+	}
+	if strings.Contains(string(data), "before midnight") {
+		t.Error("today's log should NOT contain 'before midnight'")
+	}
+}
+
+func TestMidnightNoEntriesLostOrDuplicated(t *testing.T) {
+	// Messages around the midnight boundary should each appear exactly once in the correct file.
+	tmpDir := t.TempDir()
+	logsDir := filepath.Join(tmpDir, "logs")
+	l, err := logger.New(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	day1 := time.Date(2026, 6, 10, 23, 59, 58, 0, time.Local)
+	day2 := time.Date(2026, 6, 11, 0, 0, 2, 0, time.Local)
+
+	messages := []struct {
+		ts   time.Time
+		text string
+	}{
+		{day1, "msg1_before"},
+		{day1.Add(time.Second), "msg2_before"},
+		{day2, "msg3_after"},
+		{day2.Add(time.Second), "msg4_after"},
+	}
+
+	for _, m := range messages {
+		l.Log(models.Message{Timestamp: m.ts, Type: models.MsgChat, Sender: "user", Content: m.text})
+	}
+	l.Close()
+
+	d1Path := filepath.Join(logsDir, "chat_2026-06-10.log")
+	d2Path := filepath.Join(logsDir, "chat_2026-06-11.log")
+	d1Data, _ := os.ReadFile(d1Path)
+	d2Data, _ := os.ReadFile(d2Path)
+	d1Lines := strings.Split(strings.TrimSpace(string(d1Data)), "\n")
+	d2Lines := strings.Split(strings.TrimSpace(string(d2Data)), "\n")
+
+	if len(d1Lines) != 2 {
+		t.Errorf("expected 2 entries in day1 file, got %d", len(d1Lines))
+	}
+	if len(d2Lines) != 2 {
+		t.Errorf("expected 2 entries in day2 file, got %d", len(d2Lines))
+	}
+
+	// Check no duplicates
+	allContent := string(d1Data) + string(d2Data)
+	for _, m := range messages {
+		count := strings.Count(allContent, m.text)
+		if count != 1 {
+			t.Errorf("message %q appears %d times (expected 1)", m.text, count)
+		}
+	}
+}
+
+func TestMidnightLogFileNameUpdates(t *testing.T) {
+	// Log file name changes to reflect the new date after midnight.
+	tmpDir := t.TempDir()
+	logsDir := filepath.Join(tmpDir, "logs")
+	l, err := logger.New(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write to "today"
+	today := time.Date(2026, 2, 21, 15, 0, 0, 0, time.Local)
+	l.Log(models.Message{Timestamp: today, Type: models.MsgChat, Sender: "user", Content: "today"})
+
+	// Write to "tomorrow"
+	tomorrow := time.Date(2026, 2, 22, 9, 0, 0, 0, time.Local)
+	l.Log(models.Message{Timestamp: tomorrow, Type: models.MsgChat, Sender: "user", Content: "tomorrow"})
+	l.Close()
+
+	// Both files should exist
+	todayPath := filepath.Join(logsDir, "chat_2026-02-21.log")
+	tomorrowPath := filepath.Join(logsDir, "chat_2026-02-22.log")
+
+	if _, err := os.Stat(todayPath); err != nil {
+		t.Errorf("today's log file should exist: %v", err)
+	}
+	if _, err := os.Stat(tomorrowPath); err != nil {
+		t.Errorf("tomorrow's log file should exist: %v", err)
+	}
+}
+
+func TestMidnightConnectedClientsUnaffected(t *testing.T) {
+	// Already-connected clients are not disconnected or disrupted by midnight rotation.
+	s, _ := newServerWithLogger(t)
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
+	readUntil(alice, "bob has joined", time.Second)
+
+	// Simulate midnight rotation
+	s.ClearHistory()
+
+	// Alice and Bob should still be able to chat
+	fmt.Fprintf(alice, "hello after midnight\n")
+	text, err := readUntil(bob, "hello after midnight", time.Second)
+	if err != nil {
+		t.Fatalf("bob should receive alice's post-midnight message: %v", err)
+	}
+	if !strings.Contains(text, "hello after midnight") {
+		t.Error("message should be delivered after midnight rotation")
+	}
+
+	// Bob can reply
+	fmt.Fprintf(bob, "hi alice\n")
+	text, err = readUntil(alice, "hi alice", time.Second)
+	if err != nil {
+		t.Fatalf("alice should receive bob's post-midnight message: %v", err)
+	}
+	if !strings.Contains(text, "hi alice") {
+		t.Error("reply should be delivered after midnight rotation")
+	}
+}
+
+func TestMidnightWatcherStopsOnShutdown(t *testing.T) {
+	// The midnight watcher goroutine exits cleanly when the server shuts down.
+	s := New("0")
+	s.ShutdownTimeout = 200 * time.Millisecond
+
+	// Start the watcher in a goroutine
+	done := make(chan struct{})
+	go func() {
+		s.startMidnightWatcher()
+		close(done)
+	}()
+
+	// Give it a moment to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Trigger shutdown
+	s.Shutdown()
+
+	// Watcher should exit promptly
+	select {
+	case <-done:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("midnight watcher did not exit after shutdown")
+	}
+}
+
+func TestMidnightHistoryAccumulatesAfterClear(t *testing.T) {
+	// After midnight clear, new events accumulate in a fresh history.
+	s := New("0")
+
+	// Pre-midnight events
+	s.AddHistory(models.Message{Timestamp: time.Now(), Type: models.MsgChat, Sender: "alice", Content: "old"})
+	s.ClearHistory()
+
+	// Post-midnight events
+	s.AddHistory(models.Message{Timestamp: time.Now(), Type: models.MsgJoin, Sender: "bob"})
+	s.AddHistory(models.Message{Timestamp: time.Now(), Type: models.MsgChat, Sender: "bob", Content: "new"})
+
+	history := s.GetHistory()
+	if len(history) != 2 {
+		t.Fatalf("expected 2 history entries after clear + new events, got %d", len(history))
+	}
+	if history[0].Type != models.MsgJoin || history[0].Sender != "bob" {
+		t.Error("first entry should be bob's join")
+	}
+	if history[1].Content != "new" {
+		t.Error("second entry should be bob's message")
+	}
+}
+
+func TestMidnightConcurrentClearAndAdd(t *testing.T) {
+	// ClearHistory and AddHistory are safe to call concurrently (no race).
+	s := New("0")
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			s.AddHistory(models.Message{
+				Timestamp: time.Now(),
+				Type:      models.MsgChat,
+				Sender:    "user",
+				Content:   "msg",
+			})
+		}
+		close(done)
+	}()
+
+	// Clear multiple times while adds are happening
+	for i := 0; i < 10; i++ {
+		s.ClearHistory()
+		time.Sleep(time.Millisecond)
+	}
+	<-done
+
+	// Just verify no panic — the exact count doesn't matter
+	_ = s.GetHistory()
+}
