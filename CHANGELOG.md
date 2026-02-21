@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v0.2.0...v0.2.1) (2026-02-21)
+
+### Added
+
+- *(client)* implement input continuity with partial typing preservation (Task 22) ([#14](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/a20944749b6a81b4c81bc0f14f204a79d3509f2c))
+- *(server)* implement midnight log rotation with history reset (Task 23) ([#13](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/4c2959a586aff16e8e3b232fdcc0dbad9cf9f172))
+
 ## [0.2.0](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v0.1.0...v0.2.0) (2026-02-21)
 
 ### Added
