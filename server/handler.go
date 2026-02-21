@@ -45,16 +45,18 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.TrackClient(c)
 	defer s.UntrackClient(c)
 
-	// Check IP against kick/ban lists BEFORE welcome banner or queue prompt
+	// Check IP against kick/ban lists BEFORE welcome banner or queue prompt.
+	// Write directly to conn (bypassing the async writeLoop) to guarantee delivery
+	// before we close the connection.
 	if blocked, reason := s.IsIPBlocked(c.IP); blocked {
-		c.Send(reason)
+		conn.Write([]byte(reason))
 		c.Close()
 		return
 	}
 
 	// Reject connections that arrive during shutdown
 	if s.IsShuttingDown() {
-		c.Send("Server is shutting down. Goodbye!\n")
+		conn.Write([]byte("Server is shutting down. Goodbye!\n"))
 		c.Close()
 		return
 	}
