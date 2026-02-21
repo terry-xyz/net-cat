@@ -39,6 +39,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.TrackClient(c)
 	defer s.UntrackClient(c)
 
+	// Check IP against kick/ban lists BEFORE welcome banner or queue prompt
+	if blocked, reason := s.IsIPBlocked(c.IP); blocked {
+		c.Send(reason)
+		c.Close()
+		return
+	}
+
 	// Reject connections that arrive during shutdown
 	if s.IsShuttingDown() {
 		c.Send("Server is shutting down. Goodbye!\n")
@@ -529,6 +536,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 		return
 	}
 
+	targetIP := target.IP
 	target.DisconnectReason = "kicked"
 	s.RemoveClient(args)
 
@@ -543,6 +551,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 	s.Broadcast(models.FormatModeration(args, "kicked", c.Username)+"\n", "")
 	target.Send("You have been kicked by " + c.Username + ".\n")
 	target.Close()
+	s.AddKickCooldown(targetIP)
 	s.admitFromQueue()
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }
@@ -562,6 +571,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 		return
 	}
 
+	targetIP := target.IP
 	target.DisconnectReason = "banned"
 	s.RemoveClient(args)
 
@@ -576,6 +586,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	s.Broadcast(models.FormatModeration(args, "banned", c.Username)+"\n", "")
 	target.Send("You have been banned by " + c.Username + ".\n")
 	target.Close()
+	s.AddBanIP(targetIP)
 	s.admitFromQueue()
 	c.Send(models.FormatPrompt(time.Now(), c.Username))
 }

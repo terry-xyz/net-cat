@@ -3928,3 +3928,1128 @@ func TestOperatorAnnounceWhitespaceOnly(t *testing.T) {
 		t.Errorf("whitespace-only announce should show usage, got: %q", buf.String())
 	}
 }
+
+// ==================== IP-based test helpers ====================
+
+// fakeAddr implements net.Addr with controllable values.
+type fakeAddr struct {
+	network, address string
+}
+
+func (a fakeAddr) Network() string { return a.network }
+func (a fakeAddr) String() string  { return a.address }
+
+// fakeAddrConn wraps net.Conn and overrides RemoteAddr.
+type fakeAddrConn struct {
+	net.Conn
+	remoteAddr net.Addr
+}
+
+func (c *fakeAddrConn) RemoteAddr() net.Addr { return c.remoteAddr }
+
+// connectPipeWithIP creates a pipe connection where the server sees the given IP.
+func connectPipeWithIP(s *Server, ip string) net.Conn {
+	serverConn, clientConn := net.Pipe()
+	wrapped := &fakeAddrConn{
+		Conn:       serverConn,
+		remoteAddr: fakeAddr{network: "tcp", address: ip},
+	}
+	go s.handleConnection(wrapped)
+	return clientConn
+}
+
+// ==================== Task 19: Moderation Commands (/kick, /ban, /mute, /unmute) ====================
+
+func TestKickDisconnectsTarget(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	// Promote admin
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Kick alice
+	fmt.Fprintf(c1, "/kick alice\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// alice should receive kick message and then connection should close
+	text, err := readUntil(c2, "You have been kicked", time.Second)
+	if err == nil && !strings.Contains(text, "You have been kicked") {
+		t.Errorf("alice should be notified about kick, got: %q", text)
+	}
+
+	// alice should be disconnected - verify she's no longer in client map
+	time.Sleep(100 * time.Millisecond)
+	if s.GetClient("alice") != nil {
+		t.Error("alice should be removed from client map after kick")
+	}
+}
+
+func TestKickBroadcastsNotification(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	onboard(c3, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+	readUntil(c2, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/kick alice\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// bob should see the kick notification
+	text, _ := readUntil(c3, "kicked by admin", time.Second)
+	if !strings.Contains(text, "alice was kicked by admin") {
+		t.Errorf("bob should see kick notification, got: %q", text)
+	}
+}
+
+func TestKickNoDoubleLeaveNotification(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/kick alice\n")
+	// Read the kick broadcast
+	text, _ := readUntil(c1, "kicked by admin", time.Second)
+
+	// Wait for cleanup to complete
+	time.Sleep(300 * time.Millisecond)
+
+	// Send something to flush any pending messages
+	fmt.Fprintf(c1, "ping\n")
+	text2, _ := readUntil(c1, "][admin]:", time.Second)
+
+	// The "has left our chat" message should NOT appear
+	combined := text + text2
+	if strings.Contains(combined, "has left our chat") {
+		t.Errorf("kicked user should NOT trigger leave notification, got: %q", combined)
+	}
+}
+
+func TestKickIPBlockedReconnect(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.1:1234")
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/kick alice\n")
+	readUntil(c1, "kicked by admin", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Try to reconnect from the same IP
+	c3 := connectPipeWithIP(s, "10.0.0.1:5678")
+	defer c3.Close()
+
+	// The server sends the rejection and immediately closes.
+	// Read whatever arrives (may be the rejection message or just EOF).
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	c3.SetReadDeadline(time.Now().Add(time.Second))
+	for {
+		n, err := c3.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	text := buf.String()
+
+	// Should NOT see the welcome banner (key assertion: IP is blocked)
+	if strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("blocked client should not see welcome banner")
+	}
+	if strings.Contains(text, "[ENTER YOUR NAME]") {
+		t.Error("blocked client should not see name prompt")
+	}
+}
+
+func TestKickIPBlockExpiry(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.2:1234")
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/kick alice\n")
+	readUntil(c1, "kicked by admin", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Manually expire the cooldown by setting it to the past
+	s.mu.Lock()
+	s.kickedIPs["10.0.0.2"] = time.Now().Add(-time.Minute)
+	s.mu.Unlock()
+
+	// Now reconnect from same IP should work
+	c3 := connectPipeWithIP(s, "10.0.0.2:9999")
+	defer c3.Close()
+
+	text, err := readUntil(c3, "[ENTER YOUR NAME]:", 2*time.Second)
+	if err != nil {
+		t.Fatalf("after cooldown expiry, client should see banner, got error: %v", err)
+	}
+	if !strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Errorf("after cooldown expiry, client should see welcome banner, got: %q", text)
+	}
+}
+
+func TestBanDisconnectsTarget(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/ban alice\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// alice should receive ban message
+	text, err := readUntil(c2, "You have been banned", time.Second)
+	if err == nil && !strings.Contains(text, "You have been banned") {
+		t.Errorf("alice should be notified about ban, got: %q", text)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if s.GetClient("alice") != nil {
+		t.Error("alice should be removed from client map after ban")
+	}
+}
+
+func TestBanBroadcastsNotification(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	onboard(c3, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+	readUntil(c2, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/ban alice\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// bob should see ban notification
+	text, _ := readUntil(c3, "banned by admin", time.Second)
+	if !strings.Contains(text, "alice was banned by admin") {
+		t.Errorf("bob should see ban notification, got: %q", text)
+	}
+}
+
+func TestBanNoDoubleLeaveNotification(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/ban alice\n")
+	text, _ := readUntil(c1, "banned by admin", time.Second)
+
+	time.Sleep(300 * time.Millisecond)
+
+	fmt.Fprintf(c1, "ping\n")
+	text2, _ := readUntil(c1, "][admin]:", time.Second)
+
+	combined := text + text2
+	if strings.Contains(combined, "has left our chat") {
+		t.Errorf("banned user should NOT trigger leave notification, got: %q", combined)
+	}
+}
+
+func TestBanIPBlockedReconnect(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.3:1234")
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/ban alice\n")
+	readUntil(c1, "banned by admin", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Try to reconnect from same IP
+	c3 := connectPipeWithIP(s, "10.0.0.3:5678")
+	defer c3.Close()
+
+	// The server sends the rejection and immediately closes.
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	c3.SetReadDeadline(time.Now().Add(time.Second))
+	for {
+		n, err := c3.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	text := buf.String()
+
+	// Should NOT see the welcome banner (key assertion: IP is blocked)
+	if strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("banned client should not see welcome banner")
+	}
+	if strings.Contains(text, "[ENTER YOUR NAME]") {
+		t.Error("banned client should not see name prompt")
+	}
+}
+
+func TestBanNotPersistedAcrossRestart(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.4:1234")
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/ban alice\n")
+	readUntil(c1, "banned by admin", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Create a brand new server (simulating restart)
+	s2 := newServerWithAdmins(t)
+
+	// Connect from previously banned IP - should work on new server
+	c3 := connectPipeWithIP(s2, "10.0.0.4:9999")
+	defer c3.Close()
+
+	text, err := readUntil(c3, "[ENTER YOUR NAME]:", 2*time.Second)
+	if err != nil {
+		t.Fatalf("ban should not persist across restart, got error: %v", err)
+	}
+	if !strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Errorf("new server should allow previously banned IP, got: %q", text)
+	}
+}
+
+func TestMutePreventsChat(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c2, "muted by admin", time.Second)
+
+	// alice tries to send a chat message
+	fmt.Fprintf(c2, "hello everyone\n")
+	text, _ := readUntil(c2, "You are muted", time.Second)
+	if !strings.Contains(text, "You are muted") {
+		t.Errorf("muted user should see 'You are muted', got: %q", text)
+	}
+}
+
+func TestMutedClientCanRead(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c2, "muted by admin", time.Second)
+
+	// admin sends a message
+	fmt.Fprintf(c1, "hello alice\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	// alice should still receive the message
+	text, _ := readUntil(c2, "hello alice", time.Second)
+	if !strings.Contains(text, "hello alice") {
+		t.Errorf("muted user should still receive messages, got: %q", text)
+	}
+}
+
+func TestMutedClientCommandsWork(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c2, "muted by admin", time.Second)
+
+	// /list should work
+	fmt.Fprintf(c2, "/list\n")
+	text, _ := readUntil(c2, "Connected clients", time.Second)
+	if !strings.Contains(text, "Connected clients") {
+		t.Errorf("muted user should be able to use /list, got: %q", text)
+	}
+
+	// /help should work
+	fmt.Fprintf(c2, "/help\n")
+	text, _ = readUntil(c2, "Available commands", time.Second)
+	if !strings.Contains(text, "Available commands") {
+		t.Errorf("muted user should be able to use /help, got: %q", text)
+	}
+
+	// /name should work
+	fmt.Fprintf(c2, "/name alice2\n")
+	text, _ = readUntil(c2, "][alice2]:", time.Second)
+	if !strings.Contains(text, "alice2") {
+		t.Errorf("muted user should be able to use /name, got: %q", text)
+	}
+
+	// /whisper should work
+	fmt.Fprintf(c2, "/whisper admin hello\n")
+	text, _ = readUntil(c2, "PM to admin", time.Second)
+	if !strings.Contains(text, "PM to admin") {
+		t.Errorf("muted user should be able to use /whisper, got: %q", text)
+	}
+}
+
+func TestMuteBroadcastsNotification(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	onboard(c3, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+	readUntil(c2, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/mute alice\n")
+
+	// All clients should see it
+	text1, _ := readUntil(c1, "muted by admin", time.Second)
+	text2, _ := readUntil(c2, "muted by admin", time.Second)
+	text3, _ := readUntil(c3, "muted by admin", time.Second)
+
+	if !strings.Contains(text1, "alice was muted by admin") {
+		t.Errorf("admin should see mute broadcast, got: %q", text1)
+	}
+	if !strings.Contains(text2, "alice was muted by admin") {
+		t.Errorf("alice should see mute broadcast, got: %q", text2)
+	}
+	if !strings.Contains(text3, "alice was muted by admin") {
+		t.Errorf("bob should see mute broadcast, got: %q", text3)
+	}
+}
+
+func TestUnmuteBroadcastsNotification(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	onboard(c3, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+	readUntil(c2, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// First mute
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c1, "muted by admin", time.Second)
+	readUntil(c2, "muted by admin", time.Second)
+	readUntil(c3, "muted by admin", time.Second)
+
+	// Now unmute
+	fmt.Fprintf(c1, "/unmute alice\n")
+
+	text1, _ := readUntil(c1, "unmuted by admin", time.Second)
+	text2, _ := readUntil(c2, "unmuted by admin", time.Second)
+	text3, _ := readUntil(c3, "unmuted by admin", time.Second)
+
+	if !strings.Contains(text1, "alice was unmuted by admin") {
+		t.Errorf("admin should see unmute broadcast, got: %q", text1)
+	}
+	if !strings.Contains(text2, "alice was unmuted by admin") {
+		t.Errorf("alice should see unmute broadcast, got: %q", text2)
+	}
+	if !strings.Contains(text3, "alice was unmuted by admin") {
+		t.Errorf("bob should see unmute broadcast, got: %q", text3)
+	}
+}
+
+func TestUnmuteRestoresSending(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Mute
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c2, "muted by admin", time.Second)
+
+	// Verify muted
+	fmt.Fprintf(c2, "should fail\n")
+	text, _ := readUntil(c2, "You are muted", time.Second)
+	if !strings.Contains(text, "You are muted") {
+		t.Errorf("should be muted, got: %q", text)
+	}
+
+	// Unmute
+	fmt.Fprintf(c1, "/unmute alice\n")
+	readUntil(c2, "unmuted by admin", time.Second)
+
+	// Now alice should be able to send
+	fmt.Fprintf(c2, "hello after unmute\n")
+	readUntil(c2, "][alice]:", time.Second)
+
+	// admin should see alice's message
+	text, _ = readUntil(c1, "hello after unmute", time.Second)
+	if !strings.Contains(text, "hello after unmute") {
+		t.Errorf("after unmute, alice's messages should be broadcast, got: %q", text)
+	}
+}
+
+func TestMuteAlreadyMuted(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c1, "muted by admin", time.Second)
+
+	// Mute again
+	fmt.Fprintf(c1, "/mute alice\n")
+	text, _ := readUntil(c1, "already muted", time.Second)
+	if !strings.Contains(text, "already muted") {
+		t.Errorf("muting already-muted should return informational message, got: %q", text)
+	}
+}
+
+func TestUnmuteNotMuted(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/unmute alice\n")
+	text, _ := readUntil(c1, "not muted", time.Second)
+	if !strings.Contains(text, "is not muted") {
+		t.Errorf("unmuting non-muted should return error, got: %q", text)
+	}
+}
+
+func TestCannotKickBanMuteServerOperator(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Try to kick "Server" (the operator is not in client map)
+	fmt.Fprintf(c1, "/kick Server\n")
+	text, _ := readUntil(c1, "not found", time.Second)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("kicking Server should return 'not found', got: %q", text)
+	}
+
+	// Try to ban "Server"
+	fmt.Fprintf(c1, "/ban Server\n")
+	text, _ = readUntil(c1, "not found", time.Second)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("banning Server should return 'not found', got: %q", text)
+	}
+
+	// Try to mute "Server"
+	fmt.Fprintf(c1, "/mute Server\n")
+	text, _ = readUntil(c1, "not found", time.Second)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("muting Server should return 'not found', got: %q", text)
+	}
+}
+
+func TestAdminsCanModerateEachOther(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin1")
+	onboard(c2, "admin2")
+	readUntil(c1, "admin2 has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin1")
+	readUntil(c1, "promoted", time.Second)
+	s.OperatorDispatch("/promote admin2")
+	readUntil(c2, "promoted", time.Second)
+
+	// admin1 kicks admin2
+	fmt.Fprintf(c1, "/kick admin2\n")
+	text, _ := readUntil(c1, "kicked by admin1", time.Second)
+	if !strings.Contains(text, "admin2 was kicked by admin1") {
+		t.Errorf("admin should be able to kick another admin, got: %q", text)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if s.GetClient("admin2") != nil {
+		t.Error("admin2 should be removed after kick by admin1")
+	}
+}
+
+func TestModerationEventsInHistory(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Mute alice (moderation event)
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c1, "muted by admin", time.Second)
+	readUntil(c2, "muted by admin", time.Second)
+
+	// New client joins and should see the moderation event in history
+	c3 := connectPipe(s)
+	defer c3.Close()
+	text, _ := onboard(c3, "charlie")
+	if !strings.Contains(text, "alice was muted by admin") {
+		t.Errorf("new joiner should see moderation event in history, got: %q", text)
+	}
+}
+
+func TestModerationEventsLogged(t *testing.T) {
+	s, logsDir := newServerWithLoggerAndAdmins(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Kick alice
+	fmt.Fprintf(c1, "/kick alice\n")
+	readUntil(c1, "kicked by admin", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if !strings.Contains(content, "MOD kicked alice admin") {
+		t.Errorf("log should contain moderation event with actor and target, got: %q", content)
+	}
+}
+
+func TestKickMissingArgs(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/kick\n")
+	text, _ := readUntil(c1, "Usage", time.Second)
+	if !strings.Contains(text, "Missing target") {
+		t.Errorf("expected missing target usage hint, got: %q", text)
+	}
+}
+
+func TestBanMissingArgs(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/ban\n")
+	text, _ := readUntil(c1, "Usage", time.Second)
+	if !strings.Contains(text, "Missing target") {
+		t.Errorf("expected missing target usage hint, got: %q", text)
+	}
+}
+
+func TestMuteMissingArgs(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/mute\n")
+	text, _ := readUntil(c1, "Usage", time.Second)
+	if !strings.Contains(text, "Missing target") {
+		t.Errorf("expected missing target usage hint, got: %q", text)
+	}
+}
+
+func TestUnmuteMissingArgs(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/unmute\n")
+	text, _ := readUntil(c1, "Usage", time.Second)
+	if !strings.Contains(text, "Missing target") {
+		t.Errorf("expected missing target usage hint, got: %q", text)
+	}
+}
+
+func TestKickNonexistentUser(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/kick nobody\n")
+	text, _ := readUntil(c1, "not found", time.Second)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("kicking nonexistent user should return 'not found', got: %q", text)
+	}
+}
+
+func TestMutedUserNameChangeStaysMuted(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Mute alice
+	fmt.Fprintf(c1, "/mute alice\n")
+	readUntil(c2, "muted by admin", time.Second)
+
+	// alice changes name
+	fmt.Fprintf(c2, "/name alice2\n")
+	readUntil(c2, "][alice2]:", time.Second)
+
+	// alice2 should still be muted
+	fmt.Fprintf(c2, "should be muted\n")
+	text, _ := readUntil(c2, "You are muted", time.Second)
+	if !strings.Contains(text, "You are muted") {
+		t.Errorf("name change should not remove mute, got: %q", text)
+	}
+}
+
+func TestIPCheckBeforeBanner(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.5:1234")
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/ban alice\n")
+	readUntil(c1, "banned by admin", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Connect from banned IP
+	c3 := connectPipeWithIP(s, "10.0.0.5:9999")
+	defer c3.Close()
+
+	// The server sends the rejection and immediately closes.
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	c3.SetReadDeadline(time.Now().Add(time.Second))
+	for {
+		n, err := c3.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	text := buf.String()
+
+	// Should NOT contain the welcome banner
+	if strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("banned IP should never see the welcome banner")
+	}
+	if strings.Contains(text, "[ENTER YOUR NAME]") {
+		t.Error("banned IP should never see the name prompt")
+	}
+}
+
+func TestOperatorKickBroadcastsWithServerIdentity(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/kick bob")
+
+	// alice should see kick notification with "Server" as actor
+	text, _ := readUntil(c1, "kicked by Server", time.Second)
+	if !strings.Contains(text, "bob was kicked by Server") {
+		t.Errorf("operator kick should broadcast with 'Server' identity, got: %q", text)
+	}
+}
+
+func TestBanSameIPBlocksAll(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.6:1234")
+	defer c2.Close()
+	c3 := connectPipeWithIP(s, "10.0.0.6:5678")
+	defer c3.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	onboard(c3, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Ban alice (10.0.0.6)
+	fmt.Fprintf(c1, "/ban alice\n")
+	readUntil(c1, "banned by admin", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	// Try to reconnect from the same IP with a different port
+	c4 := connectPipeWithIP(s, "10.0.0.6:9999")
+	defer c4.Close()
+
+	// The server sends the rejection and immediately closes.
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	c4.SetReadDeadline(time.Now().Add(time.Second))
+	for {
+		n, err := c4.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	text := buf.String()
+
+	// Should NOT see the welcome banner - the IP is blocked
+	if strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("same IP should be blocked after ban, should not see banner")
+	}
+	if strings.Contains(text, "[ENTER YOUR NAME]") {
+		t.Error("same IP should be blocked after ban, should not see name prompt")
+	}
+}
+
+// ==================== Task 20: /announce Command ====================
+
+func TestAnnounceBroadcastsToAll(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	onboard(c3, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+	readUntil(c2, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/announce Server maintenance at midnight\n")
+
+	text1, _ := readUntil(c1, "[ANNOUNCEMENT]", time.Second)
+	text2, _ := readUntil(c2, "[ANNOUNCEMENT]", time.Second)
+	text3, _ := readUntil(c3, "[ANNOUNCEMENT]", time.Second)
+
+	if !strings.Contains(text1, "[ANNOUNCEMENT]: Server maintenance at midnight") {
+		t.Errorf("admin should see announcement, got: %q", text1)
+	}
+	if !strings.Contains(text2, "[ANNOUNCEMENT]: Server maintenance at midnight") {
+		t.Errorf("alice should see announcement, got: %q", text2)
+	}
+	if !strings.Contains(text3, "[ANNOUNCEMENT]: Server maintenance at midnight") {
+		t.Errorf("bob should see announcement, got: %q", text3)
+	}
+}
+
+func TestAnnounceInHistory(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/announce Important news\n")
+	readUntil(c1, "[ANNOUNCEMENT]", time.Second)
+
+	// New client joins and should see the announcement in history
+	c2 := connectPipe(s)
+	defer c2.Close()
+	text, _ := onboard(c2, "alice")
+	if !strings.Contains(text, "[ANNOUNCEMENT]: Important news") {
+		t.Errorf("new joiner should see announcement in history, got: %q", text)
+	}
+}
+
+func TestAnnounceLogged(t *testing.T) {
+	s, logsDir := newServerWithLoggerAndAdmins(t)
+	c1 := connectPipe(s)
+
+	onboard(c1, "admin")
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/announce Logging test\n")
+	readUntil(c1, "[ANNOUNCEMENT]", time.Second)
+	time.Sleep(200 * time.Millisecond)
+
+	content := closeAndReadLog(t, s, logsDir, c1)
+	if !strings.Contains(content, "ANNOUNCE [admin]:Logging test") {
+		t.Errorf("log should contain announcement with announcer identity, got: %q", content)
+	}
+}
+
+func TestAnnounceMissingBody(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/announce\n")
+	text, _ := readUntil(c1, "Usage", time.Second)
+	if !strings.Contains(text, "Usage") {
+		t.Errorf("announce with no message should return usage hint, got: %q", text)
+	}
+}
+
+func TestAnnounceNonAdminInsufficient(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "alice")
+
+	fmt.Fprintf(c1, "/announce hello\n")
+	text, _ := readUntil(c1, "Insufficient", time.Second)
+	if !strings.Contains(text, "Insufficient privileges") {
+		t.Errorf("non-admin should get 'Insufficient privileges', got: %q", text)
+	}
+}
+
+func TestAnnounceByPromotedAdmin(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Promote alice
+	s.OperatorDispatch("/promote alice")
+	readUntil(c1, "promoted", time.Second)
+
+	// alice uses /announce
+	fmt.Fprintf(c1, "/announce Admin message\n")
+	readUntil(c1, "[ANNOUNCEMENT]", time.Second)
+
+	// bob should receive it
+	text, _ := readUntil(c2, "[ANNOUNCEMENT]", time.Second)
+	if !strings.Contains(text, "[ANNOUNCEMENT]: Admin message") {
+		t.Errorf("promoted admin's announcement should broadcast, got: %q", text)
+	}
+}
+
+func TestAnnounceWhitespaceBodyRejected(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	fmt.Fprintf(c1, "/announce    \n")
+	text, _ := readUntil(c1, "Usage", time.Second)
+	if !strings.Contains(text, "Usage") {
+		t.Errorf("whitespace-only announce body should be rejected, got: %q", text)
+	}
+}

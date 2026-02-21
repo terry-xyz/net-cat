@@ -39,6 +39,10 @@ type Server struct {
 	Logger          *logger.Logger
 	queue           []*QueueEntry // protected by mu
 
+	// IP-based moderation (protected by mu)
+	kickedIPs map[string]time.Time // host IP -> cooldown expiry
+	bannedIPs map[string]bool      // host IP -> banned for server session
+
 	// Admin persistence
 	admins     map[string]bool // known admin usernames, protected by mu
 	adminsFile string          // path to admins.json
@@ -58,6 +62,8 @@ func New(port string) *Server {
 		},
 		quit:           make(chan struct{}),
 		shutdownDone:   make(chan struct{}),
+		kickedIPs:      make(map[string]time.Time),
+		bannedIPs:      make(map[string]bool),
 		admins:         make(map[string]bool),
 		adminsFile:     "admins.json",
 		OperatorOutput: os.Stdout,
@@ -400,6 +406,51 @@ func (s *Server) IsShuttingDown() bool {
 	}
 }
 
+// ---------- IP-based moderation ----------
+
+// extractHost extracts the host part from a "host:port" address string.
+func extractHost(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr // bare IP or pipe address
+	}
+	return host
+}
+
+// AddKickCooldown blocks an IP from reconnecting for 5 minutes.
+func (s *Server) AddKickCooldown(ip string) {
+	host := extractHost(ip)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.kickedIPs[host] = time.Now().Add(5 * time.Minute)
+}
+
+// AddBanIP blocks an IP for the remainder of the server session.
+func (s *Server) AddBanIP(ip string) {
+	host := extractHost(ip)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bannedIPs[host] = true
+}
+
+// IsIPBlocked checks if an IP is blocked by kick cooldown or ban.
+// Returns (blocked, rejection message). Cleans up expired kick cooldowns.
+func (s *Server) IsIPBlocked(ip string) (bool, string) {
+	host := extractHost(ip)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.bannedIPs[host] {
+		return true, "You are banned from this server.\n"
+	}
+	if expiry, ok := s.kickedIPs[host]; ok {
+		if time.Now().Before(expiry) {
+			return true, "You are temporarily blocked. Try again later.\n"
+		}
+		delete(s.kickedIPs, host) // expired
+	}
+	return false, ""
+}
+
 // ---------- admin persistence ----------
 
 // LoadAdmins reads admins.json from disk. Missing or corrupt file is handled
@@ -633,6 +684,7 @@ func (s *Server) operatorCmdKick(args string) {
 		return
 	}
 
+	targetIP := target.IP
 	target.DisconnectReason = "kicked"
 	s.RemoveClient(args)
 
@@ -647,6 +699,7 @@ func (s *Server) operatorCmdKick(args string) {
 	s.Broadcast(models.FormatModeration(args, "kicked", "Server")+"\n", "")
 	target.Send("You have been kicked by Server.\n")
 	target.Close()
+	s.AddKickCooldown(targetIP)
 	s.admitFromQueue()
 	s.operatorSend(args + " has been kicked.\n")
 }
@@ -662,6 +715,7 @@ func (s *Server) operatorCmdBan(args string) {
 		return
 	}
 
+	targetIP := target.IP
 	target.DisconnectReason = "banned"
 	s.RemoveClient(args)
 
@@ -676,6 +730,7 @@ func (s *Server) operatorCmdBan(args string) {
 	s.Broadcast(models.FormatModeration(args, "banned", "Server")+"\n", "")
 	target.Send("You have been banned by Server.\n")
 	target.Close()
+	s.AddBanIP(targetIP)
 	s.admitFromQueue()
 	s.operatorSend(args + " has been banned.\n")
 }
