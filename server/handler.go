@@ -35,6 +35,12 @@ const NamePrompt = "[ENTER YOUR NAME]:"
 
 // handleConnection manages one TCP connection through onboarding, messaging, and cleanup.
 func (s *Server) handleConnection(conn net.Conn) {
+	// Enable aggressive TCP keepalive for faster dead peer detection on real connections
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(5 * time.Second)
+	}
+
 	c := client.NewClient(conn)
 	s.TrackClient(c)
 	defer s.UntrackClient(c)
@@ -107,12 +113,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 	// Cleanup runs on any exit from this point (disconnect, /quit, kick, etc.)
 	defer func() {
 		username := c.Username
-		switch c.DisconnectReason {
+		switch c.GetDisconnectReason() {
 		case "kicked", "banned":
 			// moderation handler already removed from map + broadcast + logged
 		default:
 			s.RemoveClient(username)
-			reason := c.DisconnectReason
+			reason := c.GetDisconnectReason()
 			if reason == "" {
 				reason = "voluntary"
 			}
@@ -146,13 +152,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.recordEvent(joinMsg)
 	s.Broadcast(models.FormatJoin(c.Username)+"\n", c.Username)
 
+	// Initialize heartbeat tracking and start the health check goroutine
+	c.SetLastInput(time.Now())
+	go s.startHeartbeat(c)
+
 	// --- Message loop ---
 	for {
 		line, err := c.ReadLine()
 		if err != nil {
-			if c.DisconnectReason == "" {
-				c.DisconnectReason = "drop"
-			}
+			c.SetDisconnectReason("drop")
 			if err != io.EOF {
 				s.Logger.Log(models.Message{
 					Timestamp: time.Now(),
@@ -162,6 +170,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 			}
 			return
 		}
+		// Any input from the client proves they are alive (heartbeat tracking)
+		c.SetLastInput(time.Now())
 		cmdName, args, isCmd := cmd.ParseCommand(line)
 		if isCmd {
 			if s.dispatchCommand(c, cmdName, args) {
@@ -537,7 +547,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 	}
 
 	targetIP := target.IP
-	target.DisconnectReason = "kicked"
+	target.ForceDisconnectReason("kicked")
 	s.RemoveClient(args)
 
 	modMsg := models.Message{
@@ -572,7 +582,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	}
 
 	targetIP := target.IP
-	target.DisconnectReason = "banned"
+	target.ForceDisconnectReason("banned")
 	s.RemoveClient(args)
 
 	modMsg := models.Message{

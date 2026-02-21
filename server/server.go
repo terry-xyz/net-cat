@@ -49,6 +49,10 @@ type Server struct {
 
 	// Operator terminal output (defaults to os.Stdout)
 	OperatorOutput io.Writer
+
+	// Heartbeat configuration (zero values use defaults: 10s interval, 5s timeout)
+	HeartbeatInterval time.Duration // how often to check idle clients (default 10s)
+	HeartbeatTimeout  time.Duration // write probe deadline (default 5s)
 }
 
 // New creates a server that will listen on the given port.
@@ -560,6 +564,84 @@ func (s *Server) RenameAdmin(oldName, newName string) {
 	s.SaveAdmins()
 }
 
+// ---------- heartbeat ----------
+
+// startHeartbeat runs a per-client goroutine that periodically probes the connection
+// to detect dead/ghost clients. A null byte (\x00) write probe is used because it is
+// invisible to most terminal emulators (including netcat).
+//
+// The probe runs in a separate goroutine to avoid calling SetWriteDeadline, which
+// would interfere with the client's writeLoop. Instead, a timer detects whether the
+// probe completes in time:
+//   - If the write returns an error (io.ErrClosedPipe, ECONNRESET, etc.): dead client.
+//   - If the write doesn't complete within the timeout: slow/unstable — warn but keep alive.
+//   - If the write completes quickly: healthy connection.
+//
+// For real TCP connections, TCP keepalive (enabled in handleConnection) provides an
+// additional layer of dead peer detection at the OS level.
+func (s *Server) startHeartbeat(c *client.Client) {
+	interval := s.HeartbeatInterval
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+	timeout := s.HeartbeatTimeout
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if c.IsClosed() {
+				return
+			}
+			// Active sender exemption: client recently sent data, skip probe
+			if time.Since(c.GetLastInput()) < interval {
+				continue
+			}
+			// Write probe in a goroutine to avoid blocking and to avoid
+			// calling SetWriteDeadline (which would interfere with writeLoop).
+			probeResult := make(chan error, 1)
+			start := time.Now()
+			go func() {
+				_, err := c.Conn.Write([]byte{0})
+				probeResult <- err
+			}()
+
+			select {
+			case err := <-probeResult:
+				elapsed := time.Since(start)
+				if err != nil {
+					// Non-timeout write error — connection is truly broken
+					c.SetDisconnectReason("drop")
+					c.Close()
+					return
+				}
+				// Write succeeded; warn if slow
+				if elapsed > timeout/2 {
+					c.Send("Connection unstable...\n")
+				}
+			case <-time.After(timeout):
+				// Write is still blocked (e.g., pipe reader not consuming, or
+				// TCP kernel buffer full on dead peer). Warn but don't kill —
+				// TCP keepalive handles the dead peer case over time.
+				c.Send("Connection unstable...\n")
+			case <-c.Done():
+				return
+			case <-s.quit:
+				return
+			}
+		case <-c.Done():
+			return
+		case <-s.quit:
+			return
+		}
+	}
+}
+
 // ---------- operator terminal ----------
 
 // StartOperator reads commands from the given reader (typically os.Stdin)
@@ -685,7 +767,7 @@ func (s *Server) operatorCmdKick(args string) {
 	}
 
 	targetIP := target.IP
-	target.DisconnectReason = "kicked"
+	target.ForceDisconnectReason("kicked")
 	s.RemoveClient(args)
 
 	modMsg := models.Message{
@@ -716,7 +798,7 @@ func (s *Server) operatorCmdBan(args string) {
 	}
 
 	targetIP := target.IP
-	target.DisconnectReason = "banned"
+	target.ForceDisconnectReason("banned")
 	s.RemoveClient(args)
 
 	modMsg := models.Message{

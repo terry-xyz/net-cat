@@ -5053,3 +5053,400 @@ func TestAnnounceWhitespaceBodyRejected(t *testing.T) {
 		t.Errorf("whitespace-only announce body should be rejected, got: %q", text)
 	}
 }
+
+// ==================== Task 21: Connection Health (Heartbeat, Ghost Detection) ====================
+
+// newHeartbeatServer creates a server with short heartbeat intervals for fast tests.
+func newHeartbeatServer(t *testing.T) *Server {
+	t.Helper()
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	s.HeartbeatInterval = 100 * time.Millisecond
+	s.HeartbeatTimeout = 50 * time.Millisecond
+	return s
+}
+
+// newHeartbeatServerWithLogger creates a server with heartbeat + logger.
+func newHeartbeatServerWithLogger(t *testing.T) (*Server, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	logsDir := filepath.Join(tmpDir, "logs")
+	s := New("0")
+	s.adminsFile = filepath.Join(tmpDir, "admins.json")
+	s.HeartbeatInterval = 100 * time.Millisecond
+	s.HeartbeatTimeout = 50 * time.Millisecond
+	l, err := logger.New(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Logger = l
+	t.Cleanup(func() { l.Close() })
+	return s, logsDir
+}
+
+func TestHeartbeatDeadClientDetectedAndRemoved(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	// Connect bob who will observe alice's leave notification
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
+
+	// Connect alice and onboard
+	alice := connectPipe(s)
+	onboard(alice, "alice")
+	// Bob should see alice's join
+	readUntil(bob, "alice has joined", time.Second)
+
+	// Simulate alice's connection dying by closing her end
+	alice.Close()
+
+	// Bob should see alice's leave notification within a reasonable time
+	// (heartbeat interval 100ms + timeout 50ms = 150ms, but allow generous margin)
+	text, err := readUntil(bob, "alice has left", 2*time.Second)
+	if err != nil {
+		t.Fatalf("bob did not see alice's leave notification after dead connection: %v (got: %q)", err, text)
+	}
+	if !strings.Contains(text, "alice has left our chat...") {
+		t.Errorf("expected standard leave notification, got: %q", text)
+	}
+}
+
+func TestHeartbeatLeaveNotificationBroadcastToAll(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
+
+	carol := connectPipe(s)
+	defer carol.Close()
+	onboard(carol, "carol")
+	readUntil(bob, "carol has joined", time.Second)
+
+	alice := connectPipe(s)
+	onboard(alice, "alice")
+	readUntil(bob, "alice has joined", time.Second)
+	readUntil(carol, "alice has joined", time.Second)
+
+	// Kill alice
+	alice.Close()
+
+	// Both bob and carol should see the leave notification
+	_, err1 := readUntil(bob, "alice has left", 2*time.Second)
+	_, err2 := readUntil(carol, "alice has left", 2*time.Second)
+	if err1 != nil {
+		t.Errorf("bob did not see alice's leave: %v", err1)
+	}
+	if err2 != nil {
+		t.Errorf("carol did not see alice's leave: %v", err2)
+	}
+}
+
+func TestHeartbeatRemovalLoggedWithDropReason(t *testing.T) {
+	s, logsDir := newHeartbeatServerWithLogger(t)
+
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
+
+	alice := connectPipe(s)
+	onboard(alice, "alice")
+	readUntil(bob, "alice has joined", time.Second)
+
+	// Kill alice
+	alice.Close()
+	// Wait for leave notification
+	readUntil(bob, "alice has left", 2*time.Second)
+	// Allow time for log write
+	time.Sleep(100 * time.Millisecond)
+
+	// Read the log file and verify drop reason
+	date := logger.FormatDate(time.Now())
+	logPath := filepath.Join(logsDir, fmt.Sprintf("chat_%s.log", date))
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("could not read log file: %v", err)
+	}
+	logContent := string(data)
+	if !strings.Contains(logContent, "LEAVE") || !strings.Contains(logContent, "alice") {
+		t.Errorf("expected leave event for alice in log, got: %q", logContent)
+	}
+	if !strings.Contains(logContent, "drop") {
+		t.Errorf("expected 'drop' reason in log for dead client, got: %q", logContent)
+	}
+}
+
+func TestHeartbeatInvisibleUnderNormalConditions(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	// Read all data for 500ms, draining heartbeat probes so pipe writes don't block.
+	// On a real TCP connection, kernel buffers absorb writes without blocking.
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		alice.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		n, _ := alice.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+	}
+	alice.SetReadDeadline(time.Time{})
+
+	// Under normal conditions (healthy connection where writes succeed instantly),
+	// only null bytes appear — no "Connection unstable..." warning.
+	cleaned := strings.ReplaceAll(buf.String(), "\x00", "")
+	if strings.Contains(cleaned, "Connection unstable") {
+		t.Errorf("healthy client should not see 'Connection unstable', got: %q", cleaned)
+	}
+
+	// Verify alice is still connected by sending a message
+	fmt.Fprintf(alice, "hello\n")
+	_, err := readUntil(alice, "][alice]:", time.Second)
+	if err != nil {
+		t.Fatalf("alice should still be connected after heartbeat cycles: %v", err)
+	}
+}
+
+func TestHeartbeatSlowConnectionWarning(t *testing.T) {
+	// With net.Pipe(), when the client doesn't read, the heartbeat's write probe
+	// blocks and times out. A timeout is treated as an unstable connection, so the
+	// server sends "Connection unstable..." — exactly what we want to verify.
+	s := newHeartbeatServer(t)
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	// Do NOT read from the pipe — let the heartbeat probe's write block and timeout.
+	// After the timeout, the server sends "Connection unstable..." via the message channel.
+	// Then start reading to collect the warning.
+	time.Sleep(200 * time.Millisecond)
+
+	text, err := readUntil(alice, "Connection unstable...", 3*time.Second)
+	if err != nil {
+		t.Fatalf("expected 'Connection unstable...' warning, got err=%v, text=%q", err, text)
+	}
+}
+
+func TestHeartbeatSlowButAliveNotRemoved(t *testing.T) {
+	// Verify that a client whose probe writes consistently time out (slow link)
+	// is warned but NOT disconnected. With net.Pipe(), not reading simulates this.
+	s := newHeartbeatServer(t)
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	// Don't read for a while — heartbeat probes will timeout
+	time.Sleep(400 * time.Millisecond)
+
+	// Now read — we should see "Connection unstable..." warnings but alice is alive
+	text, err := readUntil(alice, "Connection unstable...", 3*time.Second)
+	if err != nil {
+		t.Fatalf("expected unstable warnings (client should still be connected): %v", err)
+	}
+	if !strings.Contains(text, "Connection unstable...") {
+		t.Errorf("expected 'Connection unstable...' in output, got: %q", text)
+	}
+
+	// Prove alice is still connected by sending a message
+	fmt.Fprintf(alice, "still here\n")
+	_, err = readUntil(alice, "][alice]:", 2*time.Second)
+	if err != nil {
+		t.Fatalf("slow-but-alive client should NOT be removed, err: %v", err)
+	}
+}
+
+func TestHeartbeatActiveSenderExemption(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	// Keep sending messages to prove activity — should never be disconnected
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(alice, "msg%d\n", i)
+		_, err := readUntil(alice, "][alice]:", time.Second)
+		if err != nil {
+			t.Fatalf("active sender should never be disconnected, iteration %d: %v", i, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestHeartbeatCommandsCountAsActivity(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	// Send commands at regular intervals — these should count as activity
+	for i := 0; i < 5; i++ {
+		fmt.Fprintf(alice, "/list\n")
+		_, err := readUntil(alice, "][alice]:", time.Second)
+		if err != nil {
+			t.Fatalf("commands should count as activity, iteration %d: %v", i, err)
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+}
+
+func TestHeartbeatDoesNotInterfereWithMessages(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	bob := connectPipe(s)
+	defer bob.Close()
+
+	onboard(alice, "alice")
+	onboard(bob, "bob")
+	readUntil(alice, "bob has joined", time.Second)
+
+	// Both clients actively send messages. The heartbeat's active sender exemption
+	// skips probes for active clients, so pipe writes don't block.
+	for i := 0; i < 5; i++ {
+		msg := fmt.Sprintf("msg%d", i)
+		fmt.Fprintf(alice, "%s\n", msg)
+
+		text, err := readUntil(bob, msg, time.Second)
+		if err != nil {
+			t.Fatalf("message %d should be delivered despite heartbeat: %v", i, err)
+		}
+		cleaned := strings.ReplaceAll(text, "\x00", "")
+		if !strings.Contains(cleaned, "[alice]:"+msg) {
+			t.Errorf("message %d format incorrect, got: %q", i, cleaned)
+		}
+		// Read alice's prompt
+		readUntil(alice, "][alice]:", time.Second)
+
+		// Bob responds to keep his heartbeat happy too
+		fmt.Fprintf(bob, "ack%d\n", i)
+		readUntil(alice, "ack"+fmt.Sprintf("%d", i), time.Second)
+		readUntil(bob, "][bob]:", time.Second)
+		time.Sleep(30 * time.Millisecond)
+	}
+}
+
+func TestHeartbeatAllClientsUnreachable(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	// Connect several clients
+	conns := make([]net.Conn, 3)
+	for i := range conns {
+		conns[i] = connectPipe(s)
+		name := fmt.Sprintf("user%d", i)
+		onboard(conns[i], name)
+	}
+
+	// Wait for all joins to propagate
+	time.Sleep(200 * time.Millisecond)
+
+	// Kill all connections simultaneously
+	for _, c := range conns {
+		c.Close()
+	}
+
+	// Wait for heartbeat to detect all dead clients
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify server is still running by connecting a new client
+	newConn := connectPipe(s)
+	defer newConn.Close()
+	_, err := readUntil(newConn, "[ENTER YOUR NAME]:", time.Second)
+	if err != nil {
+		t.Fatalf("server should still accept connections after mass disconnect: %v", err)
+	}
+	// Server should have 0 active clients now (all were removed)
+	if count := s.GetClientCount(); count != 0 {
+		t.Errorf("expected 0 active clients after mass disconnect, got %d", count)
+	}
+}
+
+func TestHeartbeatDetectionWithinExpectedTime(t *testing.T) {
+	s := newHeartbeatServer(t)
+
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
+
+	alice := connectPipe(s)
+	onboard(alice, "alice")
+	readUntil(bob, "alice has joined", time.Second)
+
+	// Kill alice and measure how quickly she is detected
+	start := time.Now()
+	alice.Close()
+
+	_, err := readUntil(bob, "alice has left", 2*time.Second)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("alice should be detected as dead: %v", err)
+	}
+
+	// With 100ms interval + 50ms timeout, detection should be within ~200ms
+	// Use generous margin for CI
+	maxDetection := 1 * time.Second
+	if elapsed > maxDetection {
+		t.Errorf("detection took %v, expected under %v", elapsed, maxDetection)
+	}
+}
+
+func TestHeartbeatServerLoadDelayNoPenalty(t *testing.T) {
+	// This test verifies that if the server-side heartbeat ticker fires late
+	// (due to server load), the client is not penalized.
+	// We simulate this by using a longer interval and verifying the client
+	// stays connected even when idle for longer than the interval.
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	s.HeartbeatInterval = 200 * time.Millisecond
+	s.HeartbeatTimeout = 100 * time.Millisecond
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	// Sleep for a bit (less than interval + timeout), then send a message
+	time.Sleep(150 * time.Millisecond)
+
+	// Alice sends data — she should be fine
+	fmt.Fprintf(alice, "still here\n")
+	_, err := readUntil(alice, "][alice]:", time.Second)
+	if err != nil {
+		t.Fatalf("client should not be penalized for server delay: %v", err)
+	}
+}
+
+func TestHeartbeatStopsDuringShutdown(t *testing.T) {
+	// Use default (disabled) heartbeat — we're testing that the heartbeat goroutine
+	// exits cleanly when the server shuts down. With pipe connections, the probe
+	// would block, so we use a server where heartbeat is enabled but we keep the
+	// client active to avoid probe interference.
+	s := newHeartbeatServer(t)
+	s.ShutdownTimeout = 500 * time.Millisecond
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	// Keep alice active so heartbeat doesn't probe (active sender exemption)
+	fmt.Fprintf(alice, "keepalive\n")
+	readUntil(alice, "][alice]:", time.Second)
+
+	// Trigger shutdown in background
+	go s.Shutdown()
+
+	// Alice should receive shutdown message
+	text, _ := readUntil(alice, "shutting down", 2*time.Second)
+	if !strings.Contains(text, "Server is shutting down") {
+		t.Errorf("expected shutdown message, got: %q", text)
+	}
+}

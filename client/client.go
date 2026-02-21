@@ -21,13 +21,18 @@ type Client struct {
 	LastActivity     time.Time
 	Muted            bool
 	Admin            bool
-	IP               string
-	DisconnectReason string // set by moderation: "kicked", "banned"; empty for normal
+	IP string
 
 	msgChan   chan string
 	done      chan struct{}
 	closeOnce sync.Once
 	scanner   *bufio.Scanner
+
+	// mu protects fields accessed concurrently by the handler goroutine and
+	// the heartbeat goroutine: lastInput and disconnectReason.
+	mu               sync.Mutex
+	lastInput        time.Time
+	disconnectReason string
 }
 
 // NewClient wraps a connection and starts the background write goroutine.
@@ -101,6 +106,44 @@ func (c *Client) ResetScanner() {
 	scanner := bufio.NewScanner(c.Conn)
 	scanner.Buffer(make([]byte, 4096), maxLineLength)
 	c.scanner = scanner
+}
+
+// SetLastInput records the time the client last sent any data (for heartbeat tracking).
+func (c *Client) SetLastInput(t time.Time) {
+	c.mu.Lock()
+	c.lastInput = t
+	c.mu.Unlock()
+}
+
+// GetLastInput returns the time the client last sent any data.
+func (c *Client) GetLastInput() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastInput
+}
+
+// SetDisconnectReason atomically sets the disconnect reason if not already set.
+// Used to distinguish voluntary, dropped, kicked, and banned disconnects.
+func (c *Client) SetDisconnectReason(reason string) {
+	c.mu.Lock()
+	if c.disconnectReason == "" {
+		c.disconnectReason = reason
+	}
+	c.mu.Unlock()
+}
+
+// GetDisconnectReason returns the current disconnect reason.
+func (c *Client) GetDisconnectReason() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.disconnectReason
+}
+
+// ForceDisconnectReason sets the disconnect reason unconditionally (for moderation).
+func (c *Client) ForceDisconnectReason(reason string) {
+	c.mu.Lock()
+	c.disconnectReason = reason
+	c.mu.Unlock()
 }
 
 func (c *Client) writeLoop() {
