@@ -140,8 +140,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 		c.Send(msg.Display() + "\n")
 	}
 
-	// First prompt
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	// Enable character-at-a-time echo mode for input continuity
+	c.SetEchoMode(true)
+
+	// First prompt (uses SendPrompt so writeLoop tracks the prompt for redraw)
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 
 	// Broadcast join
 	joinMsg := models.Message{
@@ -156,9 +159,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 	c.SetLastInput(time.Now())
 	go s.startHeartbeat(c)
 
-	// --- Message loop ---
+	// --- Message loop (character-at-a-time reading with echo) ---
 	for {
-		line, err := c.ReadLine()
+		line, err := c.ReadLineInteractive()
 		if err != nil {
 			c.SetDisconnectReason("drop")
 			if err != io.EOF {
@@ -320,17 +323,17 @@ func ValidateName(name string) error {
 
 func (s *Server) handleChatMessage(c *client.Client, line string) {
 	if len(strings.TrimSpace(line)) == 0 {
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if len(line) > 2048 {
 		c.Send("Message too long (max 2048 characters).\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if c.Muted {
 		c.Send("You are muted.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
@@ -344,7 +347,7 @@ func (s *Server) handleChatMessage(c *client.Client, line string) {
 	s.recordEvent(msg)
 	s.Broadcast(msg.Display()+"\n", c.Username)
 	c.LastActivity = now
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- command dispatch ----------
@@ -354,13 +357,13 @@ func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
 	def, exists := cmd.Commands[cmdName]
 	if !exists {
 		c.Send("Unknown command: /" + cmdName + ". Use /help to see available commands.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return false
 	}
 	clientPriv := cmd.GetPrivilegeLevel(c.Admin, false)
 	if def.MinPriv > clientPriv {
 		c.Send("Insufficient privileges.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return false
 	}
 	switch cmdName {
@@ -421,7 +424,7 @@ func (s *Server) cmdList(c *client.Client) {
 	for _, e := range entries {
 		c.Send(fmt.Sprintf("  %s (idle: %s)\n", e.name, e.idle.String()))
 	}
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /help (role-aware) ----------
@@ -435,7 +438,7 @@ func (s *Server) cmdHelp(c *client.Client) {
 			c.Send(fmt.Sprintf("  %-30s %s\n", def.Usage, def.Description))
 		}
 	}
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /name ----------
@@ -443,30 +446,30 @@ func (s *Server) cmdHelp(c *client.Client) {
 func (s *Server) cmdName(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Usage: /name <newname>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	newName := args
 	if err := ValidateName(newName); err != nil {
 		c.Send(err.Error() + "\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if s.IsReservedName(newName) {
 		c.Send("Name '" + newName + "' is reserved.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if newName == c.Username {
 		c.Send("You already have that name.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
 	oldName := c.Username
 	if !s.RenameClient(c, oldName, newName) {
 		c.Send("Name is already taken.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
@@ -483,7 +486,7 @@ func (s *Server) cmdName(c *client.Client, args string) {
 	}
 	s.recordEvent(nameMsg)
 	s.BroadcastAll(models.FormatNameChange(oldName, newName) + "\n")
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /whisper ----------
@@ -491,44 +494,44 @@ func (s *Server) cmdName(c *client.Client, args string) {
 func (s *Server) cmdWhisper(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing recipient. Usage: /whisper <name> <message>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	idx := strings.IndexByte(args, ' ')
 	if idx < 0 {
 		c.Send("Missing message. Usage: /whisper <name> <message>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	recipient := args[:idx]
 	message := strings.TrimSpace(args[idx+1:])
 	if len(strings.TrimSpace(message)) == 0 {
 		c.Send("Missing message. Usage: /whisper <name> <message>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if len(message) > 2048 {
 		c.Send("Message too long (max 2048 characters).\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if recipient == c.Username {
 		c.Send("Cannot whisper to yourself.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
 	target := s.GetClient(recipient)
 	if target == nil {
 		c.Send("User '" + recipient + "' not found. Use /list to see connected users.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
 	now := time.Now()
 	target.Send(models.FormatWhisperReceive(now, c.Username, message) + "\n")
 	c.Send(models.FormatWhisperSend(now, recipient, message) + "\n")
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /kick ----------
@@ -536,13 +539,13 @@ func (s *Server) cmdWhisper(c *client.Client, args string) {
 func (s *Server) cmdKick(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /kick <name>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target := s.GetClient(args)
 	if target == nil {
 		c.Send("User '" + args + "' not found.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
@@ -563,7 +566,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 	target.Close()
 	s.AddKickCooldown(targetIP)
 	s.admitFromQueue()
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /ban ----------
@@ -571,13 +574,13 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 func (s *Server) cmdBan(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /ban <name>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target := s.GetClient(args)
 	if target == nil {
 		c.Send("User '" + args + "' not found.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
@@ -598,7 +601,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	target.Close()
 	s.AddBanIP(targetIP)
 	s.admitFromQueue()
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /mute ----------
@@ -606,18 +609,18 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 func (s *Server) cmdMute(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /mute <name>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target := s.GetClient(args)
 	if target == nil {
 		c.Send("User '" + args + "' not found.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if target.Muted {
 		c.Send(args + " is already muted.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
@@ -631,7 +634,7 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 	}
 	s.recordEvent(modMsg)
 	s.BroadcastAll(models.FormatModeration(args, "muted", c.Username) + "\n")
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /unmute ----------
@@ -639,18 +642,18 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 func (s *Server) cmdUnmute(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /unmute <name>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target := s.GetClient(args)
 	if target == nil {
 		c.Send("User '" + args + "' not found.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if !target.Muted {
 		c.Send(args + " is not muted.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
@@ -664,7 +667,7 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 	}
 	s.recordEvent(modMsg)
 	s.BroadcastAll(models.FormatModeration(args, "unmuted", c.Username) + "\n")
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /announce ----------
@@ -672,7 +675,7 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 func (s *Server) cmdAnnounce(c *client.Client, args string) {
 	if len(strings.TrimSpace(args)) == 0 {
 		c.Send("Usage: /announce <message>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	announceMsg := models.Message{
@@ -683,7 +686,7 @@ func (s *Server) cmdAnnounce(c *client.Client, args string) {
 	}
 	s.recordEvent(announceMsg)
 	s.BroadcastAll(models.FormatAnnouncement(args) + "\n")
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /promote ----------
@@ -691,18 +694,18 @@ func (s *Server) cmdAnnounce(c *client.Client, args string) {
 func (s *Server) cmdPromote(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /promote <name>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target := s.GetClient(args)
 	if target == nil {
 		c.Send("User '" + args + "' not found.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if target.Admin {
 		c.Send(args + " is already an admin.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target.Admin = true
@@ -718,7 +721,7 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 	}
 	s.recordEvent(modMsg)
 	c.Send(args + " has been promoted to admin.\n")
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
 // ---------- /demote ----------
@@ -726,18 +729,18 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 func (s *Server) cmdDemote(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /demote <name>\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target := s.GetClient(args)
 	if target == nil {
 		c.Send("User '" + args + "' not found.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	if !target.Admin {
 		c.Send(args + " is not an admin.\n")
-		c.Send(models.FormatPrompt(time.Now(), c.Username))
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 	target.Admin = false
@@ -753,5 +756,5 @@ func (s *Server) cmdDemote(c *client.Client, args string) {
 	}
 	s.recordEvent(modMsg)
 	c.Send(args + " has been demoted.\n")
-	c.Send(models.FormatPrompt(time.Now(), c.Username))
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
