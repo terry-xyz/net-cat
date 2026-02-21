@@ -2482,3 +2482,707 @@ func TestShutdownBeforeAnyClientConnects(t *testing.T) {
 		t.Fatal("Shutdown before any connects should complete quickly")
 	}
 }
+
+// ==================== Task 13: /list Command with Idle Times ====================
+
+func TestListIdleTimeSinceJoin(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	// Client never sent a message — idle time counted from join
+	time.Sleep(100 * time.Millisecond)
+	fmt.Fprintf(conn, "/list\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "alice") {
+		t.Errorf("expected alice in list, got: %q", text)
+	}
+	if !strings.Contains(text, "idle:") {
+		t.Errorf("expected idle time in list, got: %q", text)
+	}
+}
+
+func TestListIdleTimeUpdatesAfterMessage(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Wait so bob accumulates idle time, then have alice send a message to reset hers
+	time.Sleep(200 * time.Millisecond)
+	fmt.Fprintf(c1, "hello\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	fmt.Fprintf(c1, "/list\n")
+	text, _ := readUntil(c1, "][alice]:", time.Second)
+	if !strings.Contains(text, "alice") || !strings.Contains(text, "bob") {
+		t.Errorf("expected both clients in list, got: %q", text)
+	}
+}
+
+func TestListOnlyVisibleToRequester(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/list\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	// Send a regular message from alice to flush bob's buffer
+	fmt.Fprintf(c1, "hello\n")
+	text, _ := readUntil(c2, "hello", time.Second)
+	if strings.Contains(text, "Connected clients") {
+		t.Error("list output should not be visible to other clients")
+	}
+}
+
+func TestListSoloUser(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/list\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "alice") {
+		t.Errorf("solo user should see themselves in list, got: %q", text)
+	}
+	if !strings.Contains(text, "idle:") {
+		t.Errorf("solo user list should include idle time, got: %q", text)
+	}
+}
+
+func TestListWithExtraArgs(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	// /list with extra args should still work (args ignored)
+	fmt.Fprintf(conn, "/list foo\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "alice") {
+		t.Errorf("/list with extra args should still work, got: %q", text)
+	}
+}
+
+// ==================== Task 14: /quit Command ====================
+
+func TestQuitWithExtraArgsStillDisconnects(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// /quit with extra args should still disconnect
+	fmt.Fprintf(c2, "/quit goodbye\n")
+	text, _ := readUntil(c1, "has left", time.Second)
+	if !strings.Contains(text, "bob has left our chat...") {
+		t.Errorf("quit with args should still disconnect, got: %q", text)
+	}
+}
+
+func TestQuitLeaveLoggedAsVoluntary(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	conn := connectPipe(s)
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/quit\n")
+	time.Sleep(300 * time.Millisecond) // let cleanup run
+
+	content := closeAndReadLog(t, s, logsDir, conn)
+	if !strings.Contains(content, "LEAVE alice voluntary") {
+		t.Errorf("expected voluntary leave in log, got: %s", content)
+	}
+}
+
+func TestQuitDisconnectsClient(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/quit\n")
+	time.Sleep(300 * time.Millisecond)
+
+	// Connection should be closed — reads should fail
+	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	buf := make([]byte, 1)
+	_, err := conn.Read(buf)
+	if err == nil {
+		t.Error("expected connection to be closed after /quit")
+	}
+}
+
+// ==================== Task 15: /help Command (Role-Aware, expanded) ====================
+
+func TestHelpExactFiveUserCommands(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/help\n")
+	text, _ := readUntil(conn, "][alice]:", 2*time.Second)
+
+	// Regular user sees exactly these 5 commands
+	expectedCmds := []string{"/list", "/quit", "/name", "/whisper", "/help"}
+	for _, c := range expectedCmds {
+		if !strings.Contains(text, c) {
+			t.Errorf("regular user help should show %s", c)
+		}
+	}
+
+	// And NONE of the admin/operator commands
+	absentCmds := []string{"/kick", "/ban", "/mute", "/unmute", "/announce", "/promote", "/demote"}
+	for _, c := range absentCmds {
+		if strings.Contains(text, c) {
+			t.Errorf("regular user help should NOT show %s", c)
+		}
+	}
+}
+
+func TestHelpAdminSeesFullAdminSet(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	cl := s.GetClient("alice")
+	cl.Admin = true
+
+	fmt.Fprintf(conn, "/help\n")
+	text, _ := readUntil(conn, "][alice]:", 2*time.Second)
+
+	// Admin sees user commands + admin commands
+	expectedCmds := []string{"/list", "/quit", "/name", "/whisper", "/help",
+		"/kick", "/ban", "/mute", "/unmute", "/announce"}
+	for _, c := range expectedCmds {
+		if !strings.Contains(text, c) {
+			t.Errorf("admin help should show %s", c)
+		}
+	}
+
+	// Admin does NOT see operator-only commands
+	for _, c := range []string{"/promote", "/demote"} {
+		if strings.Contains(text, c) {
+			t.Errorf("promoted admin help should NOT show %s", c)
+		}
+	}
+}
+
+func TestHelpAfterPromotion(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	// Initially a regular user — check no admin commands
+	fmt.Fprintf(conn, "/help\n")
+	text, _ := readUntil(conn, "][alice]:", 2*time.Second)
+	if strings.Contains(text, "/kick") {
+		t.Fatal("user should NOT see /kick before promotion")
+	}
+
+	// Promote
+	cl := s.GetClient("alice")
+	cl.Admin = true
+
+	// After promotion, /help immediately reflects new role
+	fmt.Fprintf(conn, "/help\n")
+	text, _ = readUntil(conn, "][alice]:", 2*time.Second)
+	if !strings.Contains(text, "/kick") {
+		t.Error("admin should see /kick after promotion")
+	}
+}
+
+func TestHelpAfterDemotion(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	cl := s.GetClient("alice")
+	cl.Admin = true
+
+	// Verify admin sees admin commands
+	fmt.Fprintf(conn, "/help\n")
+	text, _ := readUntil(conn, "][alice]:", 2*time.Second)
+	if !strings.Contains(text, "/kick") {
+		t.Fatal("admin should see /kick initially")
+	}
+
+	// Demote
+	cl.Admin = false
+
+	// After demotion, /help no longer shows admin commands
+	fmt.Fprintf(conn, "/help\n")
+	text, _ = readUntil(conn, "][alice]:", 2*time.Second)
+	if strings.Contains(text, "/kick") {
+		t.Error("demoted user should NOT see /kick")
+	}
+}
+
+func TestHelpOutputPrivate(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/help\n")
+	readUntil(c1, "][alice]:", 2*time.Second)
+
+	// Bob should NOT see help output — flush with a real message
+	fmt.Fprintf(c1, "hello\n")
+	text, _ := readUntil(c2, "hello", time.Second)
+	if strings.Contains(text, "Available commands") {
+		t.Error("help output should not be visible to other clients")
+	}
+}
+
+// ==================== Task 16: /whisper Command (Private Messaging, expanded) ====================
+
+func TestWhisperSenderSeesContent(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/whisper bob hello there\n")
+	text, _ := readUntil(c1, "PM to bob", time.Second)
+	if !strings.Contains(text, "[PM to bob]: hello there") {
+		t.Errorf("sender should see whisper content, got: %q", text)
+	}
+}
+
+func TestWhisperRecipientFormat(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/whisper bob hello\n")
+	text, _ := readUntil(c2, "PM from alice", time.Second)
+	// Format: [timestamp][PM from sender]: message
+	if !strings.Contains(text, "[PM from alice]: hello") {
+		t.Errorf("recipient should see correct format, got: %q", text)
+	}
+}
+
+func TestWhisperNotVisibleToOthers(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	onboard(c3, "charlie")
+	readUntil(c1, "charlie has joined", time.Second)
+
+	fmt.Fprintf(c1, "/whisper bob secret\n")
+	readUntil(c1, "PM to bob", time.Second)
+	readUntil(c2, "PM from alice", time.Second)
+
+	// Send a regular message to flush charlie's buffer
+	fmt.Fprintf(c1, "hello everyone\n")
+	text, _ := readUntil(c3, "hello everyone", time.Second)
+	if strings.Contains(text, "secret") || strings.Contains(text, "PM") {
+		t.Error("third party should not see whisper")
+	}
+}
+
+func TestWhisperNotInHistory(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Send a whisper
+	fmt.Fprintf(c1, "/whisper bob secret\n")
+	readUntil(c1, "PM to bob", time.Second)
+
+	// Send a regular message so history has something
+	fmt.Fprintf(c1, "public message\n")
+	readUntil(c2, "public message", time.Second)
+
+	// New client joins — whisper must NOT appear in history
+	c3 := connectPipe(s)
+	defer c3.Close()
+	text, _ := onboard(c3, "charlie")
+	if strings.Contains(text, "secret") || strings.Contains(text, "PM") {
+		t.Error("whisper should NOT appear in history")
+	}
+	if !strings.Contains(text, "public message") {
+		t.Error("regular message should appear in history")
+	}
+}
+
+func TestWhisperNoArgs(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/whisper\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "Missing recipient") {
+		t.Errorf("expected missing recipient error, got: %q", text)
+	}
+	if !strings.Contains(text, "Usage: /whisper") {
+		t.Errorf("expected usage hint, got: %q", text)
+	}
+}
+
+func TestWhisperNoMessage(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/whisper bob\n")
+	text, _ := readUntil(c1, "][alice]:", time.Second)
+	if !strings.Contains(text, "Missing message") {
+		t.Errorf("expected missing message error, got: %q", text)
+	}
+}
+
+func TestWhisperNonexistentUser(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/whisper ghost hello\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "not found") {
+		t.Errorf("expected user-not-found error, got: %q", text)
+	}
+	if !strings.Contains(text, "ghost") {
+		t.Errorf("error should name the unfound user, got: %q", text)
+	}
+}
+
+func TestWhisperSelf(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/whisper alice hello\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "yourself") {
+		t.Errorf("expected self-whisper error, got: %q", text)
+	}
+}
+
+func TestWhisperTooLong(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	longMsg := strings.Repeat("a", 2049)
+	fmt.Fprintf(c1, "/whisper bob %s\n", longMsg)
+	text, _ := readUntil(c1, "][alice]:", 2*time.Second)
+	if !strings.Contains(text, "too long") {
+		t.Errorf("expected too-long error, got: %q", text)
+	}
+}
+
+func TestWhisperWhitespaceOnly(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/whisper bob    \n")
+	text, _ := readUntil(c1, "][alice]:", time.Second)
+	if !strings.Contains(text, "Missing message") {
+		t.Errorf("expected missing message error for whitespace-only whisper, got: %q", text)
+	}
+}
+
+// ==================== Task 17: /name Command (Identity Change, expanded) ====================
+
+func TestNameChangePromptUpdated(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/name alice2\n")
+	text, _ := readUntil(conn, "][alice2]:", time.Second)
+	if !strings.Contains(text, "][alice2]:") {
+		t.Errorf("prompt should reflect new name after change, got: %q", text)
+	}
+}
+
+func TestNameChangeInHistory(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	onboard(c1, "alice")
+
+	fmt.Fprintf(c1, "/name alice2\n")
+	readUntil(c1, "][alice2]:", time.Second)
+
+	// New client joins and sees name change in history
+	c2 := connectPipe(s)
+	defer c2.Close()
+	text, _ := onboard(c2, "bob")
+	if !strings.Contains(text, "alice changed their name to alice2") {
+		t.Errorf("name change should appear in history, got: %q", text)
+	}
+}
+
+func TestNameChangeNoArg(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/name\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "Usage: /name") {
+		t.Errorf("expected usage hint, got: %q", text)
+	}
+}
+
+func TestNameChangeSameName(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/name alice\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "already have that name") {
+		t.Errorf("expected same-name error, got: %q", text)
+	}
+}
+
+func TestNameChangeTakenName(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/name bob\n")
+	text, _ := readUntil(c1, "][alice]:", time.Second)
+	if !strings.Contains(text, "already taken") {
+		t.Errorf("expected name-taken error, got: %q", text)
+	}
+}
+
+func TestNameChangeWithSpaces(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	// /name foo bar — everything after "/name " is the proposed name "foo bar"
+	fmt.Fprintf(conn, "/name foo bar\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "spaces") {
+		t.Errorf("expected no-spaces error for name with space, got: %q", text)
+	}
+}
+
+func TestNameChangeAdminRetainsPrivileges(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	cl := s.GetClient("alice")
+	cl.Admin = true
+
+	fmt.Fprintf(conn, "/name alice2\n")
+	readUntil(conn, "][alice2]:", time.Second)
+
+	cl2 := s.GetClient("alice2")
+	if cl2 == nil || !cl2.Admin {
+		t.Error("admin should retain privileges after name change")
+	}
+}
+
+func TestNameChangeMutedRetainsMute(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	// Mute alice
+	cl := s.GetClient("alice")
+	cl.Muted = true
+
+	fmt.Fprintf(conn, "/name alice2\n")
+	readUntil(conn, "][alice2]:", time.Second)
+
+	// Try to send a message — should still be muted
+	fmt.Fprintf(conn, "hello\n")
+	text, _ := readUntil(conn, "][alice2]:", time.Second)
+	if !strings.Contains(text, "You are muted") {
+		t.Error("muted client should remain muted after name change")
+	}
+}
+
+func TestNameChangeDisconnectedNameReusable(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	onboard(c1, "alice")
+	c1.Close()
+	time.Sleep(300 * time.Millisecond) // let cleanup run
+
+	c2 := connectPipe(s)
+	defer c2.Close()
+	onboard(c2, "bob")
+
+	fmt.Fprintf(c2, "/name alice\n")
+	text, _ := readUntil(c2, "][alice]:", time.Second)
+	if !strings.Contains(text, "alice") {
+		t.Errorf("should be able to reuse disconnected client's name, got: %q", text)
+	}
+}
+
+func TestNameChangeLogged(t *testing.T) {
+	s, logsDir := newServerWithLogger(t)
+	conn := connectPipe(s)
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/name alice2\n")
+	readUntil(conn, "][alice2]:", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, conn)
+	if !strings.Contains(content, "NAMECHANGE alice alice2") {
+		t.Errorf("expected name change in log, got: %s", content)
+	}
+}
+
+func TestNameChangeReservedNameRejected(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	fmt.Fprintf(conn, "/name Server\n")
+	text, _ := readUntil(conn, "][alice]:", time.Second)
+	if !strings.Contains(text, "reserved") {
+		t.Errorf("expected reserved name error, got: %q", text)
+	}
+}
+
+func TestNameChangeSubsequentMessagesUseNewName(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/name alice2\n")
+	readUntil(c2, "alice changed their name to alice2", time.Second)
+
+	// Messages from the renamed client should use the new name
+	fmt.Fprintf(c1, "hello\n")
+	text, _ := readUntil(c2, "hello", time.Second)
+	if !strings.Contains(text, "[alice2]:hello") {
+		t.Errorf("messages after name change should use new name, got: %q", text)
+	}
+}
+
+func TestNameChangeTwoClientsSimultaneousSameName(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Both try to rename to "charlie" simultaneously
+	done := make(chan bool, 2)
+	go func() {
+		fmt.Fprintf(c1, "/name charlie\n")
+		text, _ := readUntil(c1, "]:", time.Second)
+		done <- strings.Contains(text, "][charlie]:")
+	}()
+	go func() {
+		fmt.Fprintf(c2, "/name charlie\n")
+		text, _ := readUntil(c2, "]:", time.Second)
+		done <- strings.Contains(text, "][charlie]:")
+	}()
+
+	success1 := <-done
+	success2 := <-done
+
+	if success1 == success2 {
+		t.Errorf("exactly one client should succeed when both try same name: got success1=%v success2=%v", success1, success2)
+	}
+}
