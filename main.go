@@ -41,6 +41,9 @@ func main() {
 		}
 	}()
 
+	// Start operator terminal (reads commands from stdin)
+	go srv.StartOperator(os.Stdin)
+
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

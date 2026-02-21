@@ -91,6 +91,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 	}
 
+	// Auto-restore admin privileges for known admins
+	if s.IsKnownAdmin(c.Username) {
+		c.Admin = true
+		c.Send("Welcome back, admin!\n")
+	}
+
 	// Cleanup runs on any exit from this point (disconnect, /quit, kick, etc.)
 	defer func() {
 		username := c.Username
@@ -447,6 +453,11 @@ func (s *Server) cmdName(c *client.Client, args string) {
 		return
 	}
 
+	// Update admins.json if this client is an admin
+	if c.Admin {
+		s.RenameAdmin(oldName, newName)
+	}
+
 	nameMsg := models.Message{
 		Timestamp: time.Now(),
 		Sender:    newName,
@@ -674,6 +685,7 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 		return
 	}
 	target.Admin = true
+	s.AddAdmin(args)
 	target.Send("You have been promoted to admin.\n")
 
 	modMsg := models.Message{
@@ -708,6 +720,7 @@ func (s *Server) cmdDemote(c *client.Client, args string) {
 		return
 	}
 	target.Admin = false
+	s.RemoveAdmin(args)
 	target.Send("Your admin privileges have been revoked.\n")
 
 	modMsg := models.Message{

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net-cat/client"
@@ -3184,5 +3185,746 @@ func TestNameChangeTwoClientsSimultaneousSameName(t *testing.T) {
 
 	if success1 == success2 {
 		t.Errorf("exactly one client should succeed when both try same name: got success1=%v success2=%v", success1, success2)
+	}
+}
+
+// ==================== Task 18: Admin System ====================
+
+// helper: create a server with admins.json pointed at a temp directory
+func newServerWithAdmins(t *testing.T) *Server {
+	t.Helper()
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	return s
+}
+
+// helper: create a server with both logger and admins.json in a temp directory
+func newServerWithLoggerAndAdmins(t *testing.T) (*Server, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	logsDir := filepath.Join(tmpDir, "logs")
+	s := New("0")
+	l, err := logger.New(logsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Logger = l
+	s.adminsFile = filepath.Join(tmpDir, "admins.json")
+	t.Cleanup(func() { l.Close() })
+	return s, logsDir
+}
+
+// --- Operator terminal: basic command dispatch ---
+
+func TestOperatorCanTypeCommandsInTerminal(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/list")
+	output := buf.String()
+	if !strings.Contains(output, "alice") {
+		t.Errorf("operator /list should show connected clients, got: %q", output)
+	}
+}
+
+func TestOperatorPromoteGrantsAdmin(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/promote alice")
+
+	// Alice should be notified
+	text, _ := readUntil(conn, "promoted", time.Second)
+	if !strings.Contains(text, "You have been promoted to admin") {
+		t.Errorf("alice should be notified of promotion, got: %q", text)
+	}
+
+	// Operator gets confirmation
+	if !strings.Contains(buf.String(), "alice has been promoted to admin") {
+		t.Errorf("operator should get confirmation, got: %q", buf.String())
+	}
+
+	// Alice should now be admin
+	cl := s.GetClient("alice")
+	if cl == nil || !cl.Admin {
+		t.Error("alice should be admin after promotion")
+	}
+}
+
+func TestOperatorDemoteRevokesAdmin(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	// Promote first
+	s.OperatorDispatch("/promote alice")
+	readUntil(conn, "promoted", time.Second)
+	buf.Reset()
+
+	// Now demote
+	s.OperatorDispatch("/demote alice")
+
+	text, _ := readUntil(conn, "revoked", time.Second)
+	if !strings.Contains(text, "Your admin privileges have been revoked") {
+		t.Errorf("alice should be notified of demotion, got: %q", text)
+	}
+
+	if !strings.Contains(buf.String(), "alice has been demoted") {
+		t.Errorf("operator should get confirmation, got: %q", buf.String())
+	}
+
+	cl := s.GetClient("alice")
+	if cl == nil || cl.Admin {
+		t.Error("alice should not be admin after demotion")
+	}
+}
+
+func TestPromotedAdminCannotPromoteOrDemote(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Promote alice via operator
+	s.OperatorDispatch("/promote alice")
+	readUntil(c1, "promoted", time.Second)
+
+	// alice tries /promote bob
+	fmt.Fprintf(c1, "/promote bob\n")
+	text, _ := readUntil(c1, "][alice]:", time.Second)
+	if !strings.Contains(text, "Insufficient privileges") {
+		t.Errorf("promoted admin should not be able to /promote, got: %q", text)
+	}
+
+	// alice tries /demote bob
+	fmt.Fprintf(c1, "/demote bob\n")
+	text, _ = readUntil(c1, "][alice]:", time.Second)
+	if !strings.Contains(text, "Insufficient privileges") {
+		t.Errorf("promoted admin should not be able to /demote, got: %q", text)
+	}
+}
+
+// --- admins.json persistence ---
+
+func TestAdminPersistsToFile(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	s.OperatorDispatch("/promote alice")
+	readUntil(conn, "promoted", time.Second)
+
+	// Read admins.json
+	data, err := os.ReadFile(s.adminsFile)
+	if err != nil {
+		t.Fatalf("admins.json should exist: %v", err)
+	}
+	var names []string
+	if err := json.Unmarshal(data, &names); err != nil {
+		t.Fatalf("admins.json should be valid JSON: %v", err)
+	}
+	found := false
+	for _, n := range names {
+		if n == "alice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("admins.json should contain 'alice', got: %v", names)
+	}
+}
+
+func TestAdminReconnectRestoresPrivileges(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	onboard(c1, "alice")
+
+	// Promote and disconnect
+	s.OperatorDispatch("/promote alice")
+	readUntil(c1, "promoted", time.Second)
+	c1.Close()
+	time.Sleep(300 * time.Millisecond)
+
+	// Reconnect
+	c2 := connectPipe(s)
+	defer c2.Close()
+	text, _ := onboard(c2, "alice")
+	// Should get admin greeting
+	text2, _ := readUntil(c2, "admin", time.Second)
+	combined := text + text2
+	if !strings.Contains(combined, "Welcome back, admin") {
+		t.Errorf("reconnecting admin should get greeting, got: %q", combined)
+	}
+
+	cl := s.GetClient("alice")
+	if cl == nil || !cl.Admin {
+		t.Error("reconnecting admin should have privileges restored")
+	}
+}
+
+func TestPromoteAlreadyAdmin(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/promote alice")
+	readUntil(conn, "promoted", time.Second)
+	buf.Reset()
+
+	s.OperatorDispatch("/promote alice")
+	if !strings.Contains(buf.String(), "already an admin") {
+		t.Errorf("promoting already-admin should say so, got: %q", buf.String())
+	}
+}
+
+func TestDemoteNonAdmin(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/demote alice")
+	if !strings.Contains(buf.String(), "not an admin") {
+		t.Errorf("demoting non-admin should say so, got: %q", buf.String())
+	}
+}
+
+func TestPromoteDisconnectedUser(t *testing.T) {
+	s := newServerWithAdmins(t)
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/promote ghost")
+	if !strings.Contains(buf.String(), "not found") {
+		t.Errorf("promoting disconnected user should fail, got: %q", buf.String())
+	}
+}
+
+func TestMissingAdminsJsonOnStartup(t *testing.T) {
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "nonexistent", "admins.json")
+	// Should not panic — just start with no admins
+	s.LoadAdmins()
+	if len(s.admins) != 0 {
+		t.Errorf("should start with no admins when file is missing, got: %v", s.admins)
+	}
+}
+
+func TestCorruptAdminsJsonOnStartup(t *testing.T) {
+	tmpDir := t.TempDir()
+	adminsPath := filepath.Join(tmpDir, "admins.json")
+	os.WriteFile(adminsPath, []byte("this is not json{{{"), 0600)
+
+	s := New("0")
+	s.adminsFile = adminsPath
+	s.LoadAdmins()
+	if len(s.admins) != 0 {
+		t.Errorf("should start with no admins when file is corrupt, got: %v", s.admins)
+	}
+}
+
+// --- Operator inapplicable commands ---
+
+func TestOperatorQuitReturnsError(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/quit")
+	if !strings.Contains(buf.String(), "not applicable") {
+		t.Errorf("operator /quit should return error, got: %q", buf.String())
+	}
+}
+
+func TestOperatorNameReturnsError(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/name newname")
+	if !strings.Contains(buf.String(), "not applicable") {
+		t.Errorf("operator /name should return error, got: %q", buf.String())
+	}
+}
+
+func TestOperatorWhisperReturnsError(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/whisper bob hello")
+	if !strings.Contains(buf.String(), "not applicable") {
+		t.Errorf("operator /whisper should return error, got: %q", buf.String())
+	}
+}
+
+func TestOperatorNonCommandInput(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("hello world")
+	if !strings.Contains(buf.String(), "Commands must start with /") {
+		t.Errorf("non-command input should hint about /, got: %q", buf.String())
+	}
+}
+
+func TestOperatorUnknownCommand(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/foobar")
+	if !strings.Contains(buf.String(), "Unknown command") {
+		t.Errorf("unknown command should say so, got: %q", buf.String())
+	}
+}
+
+// --- Operator uses ALL commands from terminal ---
+
+func TestOperatorListFromTerminal(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/list")
+	if !strings.Contains(buf.String(), "alice") {
+		t.Errorf("operator /list should show clients, got: %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "Connected clients:") {
+		t.Errorf("operator /list should have header, got: %q", buf.String())
+	}
+}
+
+func TestOperatorHelpFromTerminal(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/help")
+	output := buf.String()
+
+	// Operator sees ALL commands including promote and demote
+	for _, cmdName := range []string{"/list", "/quit", "/name", "/whisper", "/help",
+		"/kick", "/ban", "/mute", "/unmute", "/announce", "/promote", "/demote"} {
+		if !strings.Contains(output, cmdName) {
+			t.Errorf("operator /help should show %s, got: %q", cmdName, output)
+		}
+	}
+}
+
+func TestOperatorKickFromTerminal(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/kick bob")
+
+	// alice should see the kick broadcast with "Server" as actor
+	text, _ := readUntil(c1, "kicked by Server", time.Second)
+	if !strings.Contains(text, "bob was kicked by Server") {
+		t.Errorf("kick broadcast should use 'Server' as actor, got: %q", text)
+	}
+
+	if !strings.Contains(buf.String(), "bob has been kicked") {
+		t.Errorf("operator should get kick confirmation, got: %q", buf.String())
+	}
+}
+
+func TestOperatorBanFromTerminal(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/ban bob")
+
+	text, _ := readUntil(c1, "banned by Server", time.Second)
+	if !strings.Contains(text, "bob was banned by Server") {
+		t.Errorf("ban broadcast should use 'Server' as actor, got: %q", text)
+	}
+}
+
+func TestOperatorMuteUnmuteFromTerminal(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/mute alice")
+	text, _ := readUntil(conn, "muted by Server", time.Second)
+	if !strings.Contains(text, "alice was muted by Server") {
+		t.Errorf("mute broadcast should use 'Server' as actor, got: %q", text)
+	}
+
+	// Verify muted
+	cl := s.GetClient("alice")
+	if cl == nil || !cl.Muted {
+		t.Error("alice should be muted")
+	}
+
+	buf.Reset()
+	s.OperatorDispatch("/unmute alice")
+	text, _ = readUntil(conn, "unmuted by Server", time.Second)
+	if !strings.Contains(text, "alice was unmuted by Server") {
+		t.Errorf("unmute broadcast should use 'Server' as actor, got: %q", text)
+	}
+}
+
+func TestOperatorAnnounceFromTerminal(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/announce Maintenance at midnight")
+	text, _ := readUntil(conn, "Maintenance at midnight", time.Second)
+	if !strings.Contains(text, "[ANNOUNCEMENT]: Maintenance at midnight") {
+		t.Errorf("announcement should be broadcast, got: %q", text)
+	}
+	if !strings.Contains(buf.String(), "Announcement sent") {
+		t.Errorf("operator should get confirmation, got: %q", buf.String())
+	}
+}
+
+// --- Full admin name-change lifecycle ---
+
+func TestAdminNameChangeLifecycle(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	onboard(c1, "alice")
+
+	// Promote alice
+	s.OperatorDispatch("/promote alice")
+	readUntil(c1, "promoted", time.Second)
+
+	// alice changes name to alice2
+	fmt.Fprintf(c1, "/name alice2\n")
+	readUntil(c1, "][alice2]:", time.Second)
+
+	// Verify admin retained
+	cl := s.GetClient("alice2")
+	if cl == nil || !cl.Admin {
+		t.Error("admin should retain privileges after name change")
+	}
+
+	// Verify admins.json updated
+	data, _ := os.ReadFile(s.adminsFile)
+	var names []string
+	json.Unmarshal(data, &names)
+	foundNew := false
+	foundOld := false
+	for _, n := range names {
+		if n == "alice2" {
+			foundNew = true
+		}
+		if n == "alice" {
+			foundOld = true
+		}
+	}
+	if !foundNew {
+		t.Errorf("admins.json should contain 'alice2' after rename, got: %v", names)
+	}
+	if foundOld {
+		t.Errorf("admins.json should NOT contain 'alice' after rename, got: %v", names)
+	}
+
+	// Disconnect
+	c1.Close()
+	time.Sleep(300 * time.Millisecond)
+
+	// Reconnect as alice2 — should get admin restored
+	c2 := connectPipe(s)
+	defer c2.Close()
+	text, _ := onboard(c2, "alice2")
+	text2, _ := readUntil(c2, "admin", time.Second)
+	combined := text + text2
+	if !strings.Contains(combined, "Welcome back, admin") {
+		t.Errorf("reconnecting renamed admin should get greeting, got: %q", combined)
+	}
+}
+
+func TestDemotionRemovesFromAdminsJson(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	onboard(conn, "alice")
+
+	s.OperatorDispatch("/promote alice")
+	readUntil(conn, "promoted", time.Second)
+
+	s.OperatorDispatch("/demote alice")
+	readUntil(conn, "revoked", time.Second)
+
+	// admins.json should NOT contain alice
+	data, err := os.ReadFile(s.adminsFile)
+	if err != nil {
+		t.Fatalf("admins.json should exist: %v", err)
+	}
+	var names []string
+	json.Unmarshal(data, &names)
+	for _, n := range names {
+		if n == "alice" {
+			t.Error("admins.json should NOT contain alice after demotion")
+		}
+	}
+
+	// Disconnect and reconnect — should NOT get admin
+	conn.Close()
+	time.Sleep(300 * time.Millisecond)
+
+	c2 := connectPipe(s)
+	defer c2.Close()
+	onboard(c2, "alice")
+
+	cl := s.GetClient("alice")
+	if cl != nil && cl.Admin {
+		t.Error("demoted client should NOT get admin restored on reconnect")
+	}
+}
+
+// --- Logging with operator identity ---
+
+func TestOperatorPromoteLoggedWithServerIdentity(t *testing.T) {
+	s, logsDir := newServerWithLoggerAndAdmins(t)
+	conn := connectPipe(s)
+	onboard(conn, "alice")
+
+	s.OperatorDispatch("/promote alice")
+	readUntil(conn, "promoted", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, conn)
+	if !strings.Contains(content, "MOD promoted alice Server") {
+		t.Errorf("promote log should use 'Server' as actor, got: %q", content)
+	}
+}
+
+func TestOperatorDemoteLoggedWithServerIdentity(t *testing.T) {
+	s, logsDir := newServerWithLoggerAndAdmins(t)
+	conn := connectPipe(s)
+	onboard(conn, "alice")
+
+	s.OperatorDispatch("/promote alice")
+	readUntil(conn, "promoted", time.Second)
+	s.OperatorDispatch("/demote alice")
+	readUntil(conn, "revoked", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, conn)
+	if !strings.Contains(content, "MOD demoted alice Server") {
+		t.Errorf("demote log should use 'Server' as actor, got: %q", content)
+	}
+}
+
+func TestOperatorKickLoggedWithServerIdentity(t *testing.T) {
+	s, logsDir := newServerWithLoggerAndAdmins(t)
+	c1 := connectPipe(s)
+	c2 := connectPipe(s)
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/kick bob")
+	readUntil(c1, "kicked by Server", time.Second)
+
+	content := closeAndReadLog(t, s, logsDir, c1, c2)
+	if !strings.Contains(content, "MOD kicked bob Server") {
+		t.Errorf("kick log should use 'Server' as actor, got: %q", content)
+	}
+}
+
+// --- Rapid successive promote/demote: admins.json stays valid ---
+
+func TestRapidPromoteDemoteAdminsJsonValid(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conns := make([]net.Conn, 5)
+	names := []string{"a1", "a2", "a3", "a4", "a5"}
+	for i, name := range names {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], name)
+		if i > 0 {
+			// Wait for join notification on first conn
+			readUntil(conns[0], name+" has joined", time.Second)
+		}
+	}
+
+	// Rapid promote all
+	for _, name := range names {
+		s.OperatorDispatch("/promote " + name)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify admins.json is valid
+	data, err := os.ReadFile(s.adminsFile)
+	if err != nil {
+		t.Fatalf("admins.json should exist: %v", err)
+	}
+	var saved []string
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("admins.json should be valid JSON after rapid promotes: %v", err)
+	}
+	if len(saved) != 5 {
+		t.Errorf("expected 5 admins, got %d: %v", len(saved), saved)
+	}
+
+	// Rapid demote all
+	for _, name := range names {
+		s.OperatorDispatch("/demote " + name)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	data, _ = os.ReadFile(s.adminsFile)
+	json.Unmarshal(data, &saved)
+	if len(saved) != 0 {
+		t.Errorf("expected 0 admins after demotion, got %d: %v", len(saved), saved)
+	}
+}
+
+// --- Operator terminal with StartOperator (io.Reader-based) ---
+
+func TestStartOperatorReadsFromReader(t *testing.T) {
+	s := newServerWithAdmins(t)
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	// Simulate operator typing commands via a reader.
+	// Run synchronously since the reader is finite — StartOperator returns when input is exhausted.
+	input := "/list\n/help\n"
+	s.StartOperator(strings.NewReader(input))
+
+	output := buf.String()
+	if !strings.Contains(output, "alice") {
+		t.Errorf("operator /list should show alice, got: %q", output)
+	}
+	if !strings.Contains(output, "/promote") {
+		t.Errorf("operator /help should show all commands, got: %q", output)
+	}
+}
+
+// --- Operator empty input is ignored ---
+
+func TestOperatorEmptyInputIgnored(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("")
+	s.OperatorDispatch("   ")
+	if buf.Len() != 0 {
+		t.Errorf("empty input should produce no output, got: %q", buf.String())
+	}
+}
+
+// --- Operator missing args ---
+
+func TestOperatorPromoteMissingArgs(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/promote")
+	if !strings.Contains(buf.String(), "Missing target") {
+		t.Errorf("expected missing target error, got: %q", buf.String())
+	}
+}
+
+func TestOperatorDemoteMissingArgs(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/demote")
+	if !strings.Contains(buf.String(), "Missing target") {
+		t.Errorf("expected missing target error, got: %q", buf.String())
+	}
+}
+
+func TestOperatorKickMissingArgs(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/kick")
+	if !strings.Contains(buf.String(), "Missing target") {
+		t.Errorf("expected missing target error, got: %q", buf.String())
+	}
+}
+
+func TestOperatorAnnounceMissingArgs(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/announce")
+	if !strings.Contains(buf.String(), "Usage") {
+		t.Errorf("expected usage hint, got: %q", buf.String())
+	}
+}
+
+func TestOperatorAnnounceWhitespaceOnly(t *testing.T) {
+	s := New("0")
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/announce    ")
+	if !strings.Contains(buf.String(), "Usage") {
+		t.Errorf("whitespace-only announce should show usage, got: %q", buf.String())
 	}
 }

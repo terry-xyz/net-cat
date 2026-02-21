@@ -2,12 +2,17 @@ package server
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net-cat/client"
+	"net-cat/cmd"
 	"net-cat/logger"
 	"net-cat/models"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,6 +38,13 @@ type Server struct {
 	ShutdownTimeout time.Duration // defaults to 5s; override in tests for faster execution
 	Logger          *logger.Logger
 	queue           []*QueueEntry // protected by mu
+
+	// Admin persistence
+	admins     map[string]bool // known admin usernames, protected by mu
+	adminsFile string          // path to admins.json
+
+	// Operator terminal output (defaults to os.Stdout)
+	OperatorOutput io.Writer
 }
 
 // New creates a server that will listen on the given port.
@@ -44,8 +56,11 @@ func New(port string) *Server {
 		reservedNames: map[string]bool{
 			"Server": true,
 		},
-		quit:         make(chan struct{}),
-		shutdownDone: make(chan struct{}),
+		quit:           make(chan struct{}),
+		shutdownDone:   make(chan struct{}),
+		admins:         make(map[string]bool),
+		adminsFile:     "admins.json",
+		OperatorOutput: os.Stdout,
 	}
 }
 
@@ -62,6 +77,7 @@ func (s *Server) Start() error {
 		Type:      models.MsgServerEvent,
 		Content:   "Server started on port " + s.port,
 	})
+	s.LoadAdmins()
 	s.RecoverHistory()
 	s.acceptLoop()
 	<-s.shutdownDone
@@ -382,4 +398,414 @@ func (s *Server) IsShuttingDown() bool {
 	default:
 		return false
 	}
+}
+
+// ---------- admin persistence ----------
+
+// LoadAdmins reads admins.json from disk. Missing or corrupt file is handled
+// gracefully: the server starts with no saved admins and a console warning.
+func (s *Server) LoadAdmins() {
+	path := s.adminsFile
+	if path == "" {
+		return
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Warning: could not open admins.json: %v\n", err)
+		}
+		return
+	}
+	defer f.Close()
+
+	var names []string
+	if err := json.NewDecoder(f).Decode(&names); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: corrupt admins.json, starting with no saved admins: %v\n", err)
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, name := range names {
+		s.admins[name] = true
+	}
+}
+
+// SaveAdmins writes the current admin list to admins.json atomically.
+// Writes to a temp file then renames for crash safety.
+func (s *Server) SaveAdmins() {
+	path := s.adminsFile
+	if path == "" {
+		return
+	}
+
+	s.mu.RLock()
+	names := make([]string, 0, len(s.admins))
+	for name := range s.admins {
+		names = append(names, name)
+	}
+	s.mu.RUnlock()
+
+	// Sort for deterministic output (simple insertion sort, no sort package)
+	for i := 1; i < len(names); i++ {
+		key := names[i]
+		j := i - 1
+		for j >= 0 && names[j] > key {
+			names[j+1] = names[j]
+			j--
+		}
+		names[j+1] = key
+	}
+
+	data, err := json.MarshalIndent(names, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not marshal admins.json: %v\n", err)
+		return
+	}
+
+	dir := filepath.Dir(path)
+	tmpFile := filepath.Join(dir, ".admins.json.tmp")
+	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not write admins.json: %v\n", err)
+		return
+	}
+	if err := os.Rename(tmpFile, path); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save admins.json: %v\n", err)
+	}
+}
+
+// IsKnownAdmin checks if a username is in the persisted admin list.
+func (s *Server) IsKnownAdmin(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.admins[name]
+}
+
+// AddAdmin adds a username to the persisted admin list and saves.
+func (s *Server) AddAdmin(name string) {
+	s.mu.Lock()
+	s.admins[name] = true
+	s.mu.Unlock()
+	s.SaveAdmins()
+}
+
+// RemoveAdmin removes a username from the persisted admin list and saves.
+func (s *Server) RemoveAdmin(name string) {
+	s.mu.Lock()
+	delete(s.admins, name)
+	s.mu.Unlock()
+	s.SaveAdmins()
+}
+
+// RenameAdmin updates the persisted admin list when an admin changes their name.
+func (s *Server) RenameAdmin(oldName, newName string) {
+	s.mu.Lock()
+	if s.admins[oldName] {
+		delete(s.admins, oldName)
+		s.admins[newName] = true
+	}
+	s.mu.Unlock()
+	s.SaveAdmins()
+}
+
+// ---------- operator terminal ----------
+
+// StartOperator reads commands from the given reader (typically os.Stdin)
+// and dispatches them with full operator authority. Blocks until the reader
+// is exhausted or the server shuts down.
+func (s *Server) StartOperator(r io.Reader) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 4096), 1048576)
+	for scanner.Scan() {
+		if s.IsShuttingDown() {
+			return
+		}
+		line := scanner.Text()
+		s.OperatorDispatch(line)
+	}
+}
+
+// OperatorDispatch parses and executes a single operator terminal input line.
+func (s *Server) OperatorDispatch(input string) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return
+	}
+
+	cmdName, args, isCmd := cmd.ParseCommand(input)
+	if !isCmd {
+		s.operatorSend("Commands must start with /. Use /help to see available commands.\n")
+		return
+	}
+
+	def, exists := cmd.Commands[cmdName]
+	if !exists {
+		s.operatorSend("Unknown command: /" + cmdName + ". Use /help to see available commands.\n")
+		return
+	}
+
+	// Operator has full privilege, but some commands are inapplicable
+	switch cmdName {
+	case "quit":
+		s.operatorSend("The /quit command is not applicable to the server operator.\n")
+	case "name":
+		s.operatorSend("The /name command is not applicable to the server operator.\n")
+	case "whisper":
+		s.operatorSend("The /whisper command is not applicable to the server operator.\n")
+	case "list":
+		s.operatorCmdList()
+	case "help":
+		s.operatorCmdHelp()
+	case "kick":
+		s.operatorCmdKick(args)
+	case "ban":
+		s.operatorCmdBan(args)
+	case "mute":
+		s.operatorCmdMute(args)
+	case "unmute":
+		s.operatorCmdUnmute(args)
+	case "announce":
+		s.operatorCmdAnnounce(args)
+	case "promote":
+		s.operatorCmdPromote(args)
+	case "demote":
+		s.operatorCmdDemote(args)
+	default:
+		_ = def
+		s.operatorSend("Unknown command: /" + cmdName + ".\n")
+	}
+}
+
+// operatorSend writes a message to the operator's output (typically stdout).
+func (s *Server) operatorSend(msg string) {
+	if s.OperatorOutput != nil {
+		fmt.Fprint(s.OperatorOutput, msg)
+	}
+}
+
+// ---------- operator command implementations ----------
+
+func (s *Server) operatorCmdList() {
+	s.mu.RLock()
+	type entry struct {
+		name string
+		idle time.Duration
+	}
+	entries := make([]entry, 0, len(s.clients))
+	for n, cl := range s.clients {
+		entries = append(entries, entry{name: n, idle: time.Since(cl.LastActivity).Truncate(time.Second)})
+	}
+	s.mu.RUnlock()
+
+	for i := 1; i < len(entries); i++ {
+		key := entries[i]
+		j := i - 1
+		for j >= 0 && entries[j].name > key.name {
+			entries[j+1] = entries[j]
+			j--
+		}
+		entries[j+1] = key
+	}
+
+	s.operatorSend("Connected clients:\n")
+	for _, e := range entries {
+		s.operatorSend(fmt.Sprintf("  %s (idle: %s)\n", e.name, e.idle.String()))
+	}
+}
+
+func (s *Server) operatorCmdHelp() {
+	s.operatorSend("Available commands:\n")
+	for _, name := range cmd.CommandOrder {
+		def := cmd.Commands[name]
+		s.operatorSend(fmt.Sprintf("  %-30s %s\n", def.Usage, def.Description))
+	}
+}
+
+func (s *Server) operatorCmdKick(args string) {
+	if args == "" {
+		s.operatorSend("Missing target. Usage: /kick <name>\n")
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		s.operatorSend("User '" + args + "' not found.\n")
+		return
+	}
+
+	target.DisconnectReason = "kicked"
+	s.RemoveClient(args)
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "kicked",
+		Type:      models.MsgModeration,
+		Extra:     "Server",
+	}
+	s.recordEvent(modMsg)
+	s.Broadcast(models.FormatModeration(args, "kicked", "Server")+"\n", "")
+	target.Send("You have been kicked by Server.\n")
+	target.Close()
+	s.admitFromQueue()
+	s.operatorSend(args + " has been kicked.\n")
+}
+
+func (s *Server) operatorCmdBan(args string) {
+	if args == "" {
+		s.operatorSend("Missing target. Usage: /ban <name>\n")
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		s.operatorSend("User '" + args + "' not found.\n")
+		return
+	}
+
+	target.DisconnectReason = "banned"
+	s.RemoveClient(args)
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "banned",
+		Type:      models.MsgModeration,
+		Extra:     "Server",
+	}
+	s.recordEvent(modMsg)
+	s.Broadcast(models.FormatModeration(args, "banned", "Server")+"\n", "")
+	target.Send("You have been banned by Server.\n")
+	target.Close()
+	s.admitFromQueue()
+	s.operatorSend(args + " has been banned.\n")
+}
+
+func (s *Server) operatorCmdMute(args string) {
+	if args == "" {
+		s.operatorSend("Missing target. Usage: /mute <name>\n")
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		s.operatorSend("User '" + args + "' not found.\n")
+		return
+	}
+	if target.Muted {
+		s.operatorSend(args + " is already muted.\n")
+		return
+	}
+
+	target.Muted = true
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "muted",
+		Type:      models.MsgModeration,
+		Extra:     "Server",
+	}
+	s.recordEvent(modMsg)
+	s.BroadcastAll(models.FormatModeration(args, "muted", "Server") + "\n")
+	s.operatorSend(args + " has been muted.\n")
+}
+
+func (s *Server) operatorCmdUnmute(args string) {
+	if args == "" {
+		s.operatorSend("Missing target. Usage: /unmute <name>\n")
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		s.operatorSend("User '" + args + "' not found.\n")
+		return
+	}
+	if !target.Muted {
+		s.operatorSend(args + " is not muted.\n")
+		return
+	}
+
+	target.Muted = false
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "unmuted",
+		Type:      models.MsgModeration,
+		Extra:     "Server",
+	}
+	s.recordEvent(modMsg)
+	s.BroadcastAll(models.FormatModeration(args, "unmuted", "Server") + "\n")
+	s.operatorSend(args + " has been unmuted.\n")
+}
+
+func (s *Server) operatorCmdAnnounce(args string) {
+	if len(strings.TrimSpace(args)) == 0 {
+		s.operatorSend("Usage: /announce <message>\n")
+		return
+	}
+	announceMsg := models.Message{
+		Timestamp: time.Now(),
+		Content:   args,
+		Type:      models.MsgAnnouncement,
+		Extra:     "Server",
+	}
+	s.recordEvent(announceMsg)
+	s.BroadcastAll(models.FormatAnnouncement(args) + "\n")
+	s.operatorSend("Announcement sent.\n")
+}
+
+func (s *Server) operatorCmdPromote(args string) {
+	if args == "" {
+		s.operatorSend("Missing target. Usage: /promote <name>\n")
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		s.operatorSend("User '" + args + "' not found.\n")
+		return
+	}
+	if target.Admin {
+		s.operatorSend(args + " is already an admin.\n")
+		return
+	}
+	target.Admin = true
+	s.AddAdmin(args)
+	target.Send("You have been promoted to admin.\n")
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "promoted",
+		Type:      models.MsgModeration,
+		Extra:     "Server",
+	}
+	s.recordEvent(modMsg)
+	s.operatorSend(args + " has been promoted to admin.\n")
+}
+
+func (s *Server) operatorCmdDemote(args string) {
+	if args == "" {
+		s.operatorSend("Missing target. Usage: /demote <name>\n")
+		return
+	}
+	target := s.GetClient(args)
+	if target == nil {
+		s.operatorSend("User '" + args + "' not found.\n")
+		return
+	}
+	if !target.Admin {
+		s.operatorSend(args + " is not an admin.\n")
+		return
+	}
+	target.Admin = false
+	s.RemoveAdmin(args)
+	target.Send("Your admin privileges have been revoked.\n")
+
+	modMsg := models.Message{
+		Timestamp: time.Now(),
+		Sender:    args,
+		Content:   "demoted",
+		Type:      models.MsgModeration,
+		Extra:     "Server",
+	}
+	s.recordEvent(modMsg)
+	s.operatorSend(args + " has been demoted.\n")
 }
