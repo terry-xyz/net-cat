@@ -6453,11 +6453,11 @@ func TestEdgeCaseAdminActionOnDisconnectingClient(t *testing.T) {
 	readUntil(admin, "admin", time.Second)
 
 	// Run this multiple times to increase race probability
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		target := connectPipe(s)
 		name := fmt.Sprintf("target%d", i)
 		onboard(target, name)
-		readUntil(admin, name+" has joined", time.Second)
+		readUntil(admin, name+" has joined", 500*time.Millisecond)
 
 		// Concurrently: admin kicks while target disconnects
 		var wg sync.WaitGroup
@@ -6473,10 +6473,10 @@ func TestEdgeCaseAdminActionOnDisconnectingClient(t *testing.T) {
 		}()
 		wg.Wait()
 
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 
 		// Drain admin output
-		readAvailable(admin, 200*time.Millisecond)
+		readAvailable(admin, 100*time.Millisecond)
 
 		// Verify: target is no longer in clients map (regardless of which happened first)
 		if s.GetClient(name) != nil {

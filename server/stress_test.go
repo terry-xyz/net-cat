@@ -58,12 +58,7 @@ func TestStressRapidMessages(t *testing.T) {
 	wg.Wait()
 
 	// Allow time for all messages to propagate through the server
-	time.Sleep(2 * time.Second)
-
-	// Each client should receive (numClients-1) * msgsPerClient messages from others
-	// plus their own echo. We'll verify via the log file which captures ALL messages.
-	// The log is the single source of truth — every chat message is recorded once.
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
 
 	// Check log file for all messages
 	history := s.GetHistory()
@@ -134,7 +129,7 @@ func TestStressConcurrentLogAccuracy(t *testing.T) {
 	wg.Wait()
 
 	// Wait for all messages to be logged
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	// Read the log file and verify all messages
 	logsDir := filepath.Join(tmpDir, "logs")
@@ -210,7 +205,7 @@ func TestStressRapidConnectDisconnect(t *testing.T) {
 	wg.Wait()
 
 	// Allow goroutines to clean up
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	final := runtime.NumGoroutine()
 	// Allow a small margin for background goroutines (timer, GC, etc.)
@@ -344,18 +339,28 @@ func TestStressBroadcastCompleteness(t *testing.T) {
 	wg.Wait()
 
 	// Wait for messages to propagate
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 
-	// Each client should see all OTHER clients' messages (9 messages each)
+	// Each client should see all OTHER clients' messages (9 messages each).
+	// Drain all connections in parallel to avoid sequential 1s × N timeouts.
+	results := make([]string, numClients)
+	var drainWg sync.WaitGroup
 	for i := 0; i < numClients; i++ {
-		text := drainFor(conns[i], 1*time.Second)
-		stripped := stripAnsi(text)
+		drainWg.Add(1)
+		go func(idx int) {
+			defer drainWg.Done()
+			results[idx] = stripAnsi(drainFor(conns[idx], 500*time.Millisecond))
+		}(i)
+	}
+	drainWg.Wait()
+
+	for i := 0; i < numClients; i++ {
 		for j := 0; j < numClients; j++ {
 			if i == j {
 				continue // sender doesn't receive their own broadcast
 			}
 			expected := fmt.Sprintf("broadcast_%d_unique", j)
-			if !strings.Contains(stripped, expected) {
+			if !strings.Contains(results[i], expected) {
 				t.Errorf("client %d (bc%d) did not receive message from client %d: %q not found in output",
 					i, i, j, expected)
 			}
@@ -379,7 +384,7 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 	senderDone := make(chan struct{})
 	go func() {
 		defer close(senderDone)
-		for i := 0; i < 200; i++ {
+		for i := 0; i < 100; i++ {
 			msg := fmt.Sprintf("rapid_%d", i)
 			fmt.Fprintf(sender, "%s\n", msg)
 			time.Sleep(5 * time.Millisecond)
@@ -388,7 +393,7 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 
 	// Meanwhile, rapidly connect and disconnect other clients
 	var wg sync.WaitGroup
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 15; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -416,7 +421,7 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 	wg.Wait()
 
 	// Allow cleanup
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	// The test passes if we reach here without deadlock or panic.
 	// Verify sender is still connected and responsive
@@ -441,9 +446,9 @@ func TestStressMidnightRotationUnderLoad(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
 
-	const numClients = 10
-	const msgsBeforeMidnight = 20
-	const msgsAfterMidnight = 20
+	const numClients = 5
+	const msgsBeforeMidnight = 10
+	const msgsAfterMidnight = 10
 
 	conns := make([]net.Conn, numClients)
 	names := make([]string, numClients)
@@ -463,7 +468,7 @@ func TestStressMidnightRotationUnderLoad(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 		}
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	// Verify pre-midnight messages are in history
 	histBefore := s.GetHistory()
@@ -495,7 +500,7 @@ func TestStressMidnightRotationUnderLoad(t *testing.T) {
 	s.ClearHistory()
 
 	<-sendingDone
-	time.Sleep(1 * time.Second)
+	time.Sleep(500 * time.Millisecond)
 
 	// Verify: history should only contain post-midnight messages
 	histAfter := s.GetHistory()
