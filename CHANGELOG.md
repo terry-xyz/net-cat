@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v0.2.1...v0.2.2) (2026-02-24)
+
+### Added
+
+- *(server)* support kicking/banning queued users by IP (Task 4) ([#22](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/4e35b5e6c22f723652b33dea804d1f61fa5bb450))
+
+### Changed
+
+- *(server)* optimize test suite timing to fit within 90s timeout ([#20](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/8284e003bbd95ddec8a26d7ee0791ca323d20a37))
+
+### Fixed
+
+- *(server,client)* resolve data races and spec violations in heartbeat, moderation, and client fields (Tasks 1-3) ([#21](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/aaa6669ea9d35cb3430450eef6a37bc468c9161c))
+
 ## [0.2.1](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v0.2.0...v0.2.1) (2026-02-21)
 
 ### Added
