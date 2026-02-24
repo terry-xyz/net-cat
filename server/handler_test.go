@@ -552,7 +552,7 @@ func TestMissingArgsReturnsUsage(t *testing.T) {
 
 	// Set alice as admin so she can test admin commands
 	cl := s.GetClient("alice")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	tests := []struct {
 		command string
@@ -805,7 +805,7 @@ func TestHelpAdmin(t *testing.T) {
 	onboard(conn, "alice")
 
 	cl := s.GetClient("alice")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(conn, "/help\n")
 	text, _ := readUntil(conn, "][alice]:", 2*time.Second)
@@ -1087,7 +1087,7 @@ func TestLoggingModerationKick(t *testing.T) {
 	readUntil(c1, "target has joined", time.Second)
 
 	cl := s.GetClient("admin")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(c1, "/kick target\n")
 	readUntil(c1, "][admin]:", time.Second)
@@ -1108,7 +1108,7 @@ func TestLoggingModerationBan(t *testing.T) {
 	readUntil(c1, "target has joined", time.Second)
 
 	cl := s.GetClient("admin")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(c1, "/ban target\n")
 	readUntil(c1, "][admin]:", time.Second)
@@ -1129,7 +1129,7 @@ func TestLoggingModerationMuteUnmute(t *testing.T) {
 	readUntil(c1, "target has joined", time.Second)
 
 	cl := s.GetClient("admin")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(c1, "/mute target\n")
 	readUntil(c1, "][admin]:", time.Second)
@@ -1176,7 +1176,7 @@ func TestLoggingAnnouncement(t *testing.T) {
 
 	onboard(c1, "admin")
 	cl := s.GetClient("admin")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(c1, "/announce Server maintenance at midnight\n")
 	readUntil(c1, "][admin]:", time.Second)
@@ -1457,7 +1457,7 @@ func TestRecoveryIncludesAllEventTypes(t *testing.T) {
 
 	// Moderation (mute/unmute)
 	cl := s1.GetClient("admin")
-	cl.Admin = true
+	cl.SetAdmin(true)
 	fmt.Fprintf(c1, "/mute target2\n")
 	readUntil(c1, "][admin]:", time.Second)
 	fmt.Fprintf(c1, "/unmute target2\n")
@@ -1871,7 +1871,7 @@ func TestRecoveryKickBanInHistory(t *testing.T) {
 	readUntil(c1, "victim2 has joined", time.Second)
 
 	cl := s1.GetClient("admin")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(c1, "/kick victim1\n")
 	readUntil(c1, "][admin]:", time.Second)
@@ -2670,7 +2670,7 @@ func TestHelpAdminSeesFullAdminSet(t *testing.T) {
 	onboard(conn, "alice")
 
 	cl := s.GetClient("alice")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(conn, "/help\n")
 	text, _ := readUntil(conn, "][alice]:", 2*time.Second)
@@ -2707,7 +2707,7 @@ func TestHelpAfterPromotion(t *testing.T) {
 
 	// Promote
 	cl := s.GetClient("alice")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	// After promotion, /help immediately reflects new role
 	fmt.Fprintf(conn, "/help\n")
@@ -2724,7 +2724,7 @@ func TestHelpAfterDemotion(t *testing.T) {
 	onboard(conn, "alice")
 
 	cl := s.GetClient("alice")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	// Verify admin sees admin commands
 	fmt.Fprintf(conn, "/help\n")
@@ -2734,7 +2734,7 @@ func TestHelpAfterDemotion(t *testing.T) {
 	}
 
 	// Demote
-	cl.Admin = false
+	cl.SetAdmin(false)
 
 	// After demotion, /help no longer shows admin commands
 	fmt.Fprintf(conn, "/help\n")
@@ -3060,13 +3060,13 @@ func TestNameChangeAdminRetainsPrivileges(t *testing.T) {
 	onboard(conn, "alice")
 
 	cl := s.GetClient("alice")
-	cl.Admin = true
+	cl.SetAdmin(true)
 
 	fmt.Fprintf(conn, "/name alice2\n")
 	readUntil(conn, "][alice2]:", time.Second)
 
 	cl2 := s.GetClient("alice2")
-	if cl2 == nil || !cl2.Admin {
+	if cl2 == nil || !cl2.IsAdmin() {
 		t.Error("admin should retain privileges after name change")
 	}
 }
@@ -3079,7 +3079,7 @@ func TestNameChangeMutedRetainsMute(t *testing.T) {
 
 	// Mute alice
 	cl := s.GetClient("alice")
-	cl.Muted = true
+	cl.SetMuted(true)
 
 	fmt.Fprintf(conn, "/name alice2\n")
 	readUntil(conn, "][alice2]:", time.Second)
@@ -3246,11 +3246,13 @@ func TestOperatorPromoteGrantsAdmin(t *testing.T) {
 
 	s.OperatorDispatch("/promote alice")
 
-	// Alice should be notified
-	text, _ := readUntil(conn, "promoted", time.Second)
+	// Alice should see her personal notification and the broadcast
+	text, _ := readUntil(conn, "You have been promoted to admin", time.Second)
 	if !strings.Contains(text, "You have been promoted to admin") {
 		t.Errorf("alice should be notified of promotion, got: %q", text)
 	}
+	// Drain the broadcast (alice also sees it as part of BroadcastAll)
+	readUntil(conn, "alice was promoted by Server", time.Second)
 
 	// Operator gets confirmation
 	if !strings.Contains(buf.String(), "alice has been promoted to admin") {
@@ -3259,7 +3261,7 @@ func TestOperatorPromoteGrantsAdmin(t *testing.T) {
 
 	// Alice should now be admin
 	cl := s.GetClient("alice")
-	if cl == nil || !cl.Admin {
+	if cl == nil || !cl.IsAdmin() {
 		t.Error("alice should be admin after promotion")
 	}
 }
@@ -3291,7 +3293,7 @@ func TestOperatorDemoteRevokesAdmin(t *testing.T) {
 	}
 
 	cl := s.GetClient("alice")
-	if cl == nil || cl.Admin {
+	if cl == nil || cl.IsAdmin() {
 		t.Error("alice should not be admin after demotion")
 	}
 }
@@ -3309,18 +3311,21 @@ func TestPromotedAdminCannotPromoteOrDemote(t *testing.T) {
 
 	// Promote alice via operator
 	s.OperatorDispatch("/promote alice")
-	readUntil(c1, "promoted", time.Second)
+	readUntil(c1, "You have been promoted", time.Second)
+	// Drain broadcast from both clients
+	readUntil(c1, "alice was promoted", time.Second)
+	readUntil(c2, "alice was promoted", time.Second)
 
-	// alice tries /promote bob
+	// alice tries /promote bob — should fail (operator-only command)
 	fmt.Fprintf(c1, "/promote bob\n")
-	text, _ := readUntil(c1, "][alice]:", time.Second)
+	text, _ := readUntil(c1, "Insufficient privileges", time.Second)
 	if !strings.Contains(text, "Insufficient privileges") {
 		t.Errorf("promoted admin should not be able to /promote, got: %q", text)
 	}
 
-	// alice tries /demote bob
+	// alice tries /demote bob — should fail
 	fmt.Fprintf(c1, "/demote bob\n")
-	text, _ = readUntil(c1, "][alice]:", time.Second)
+	text, _ = readUntil(c1, "Insufficient privileges", time.Second)
 	if !strings.Contains(text, "Insufficient privileges") {
 		t.Errorf("promoted admin should not be able to /demote, got: %q", text)
 	}
@@ -3380,7 +3385,7 @@ func TestAdminReconnectRestoresPrivileges(t *testing.T) {
 	}
 
 	cl := s.GetClient("alice")
-	if cl == nil || !cl.Admin {
+	if cl == nil || !cl.IsAdmin() {
 		t.Error("reconnecting admin should have privileges restored")
 	}
 }
@@ -3613,7 +3618,7 @@ func TestOperatorMuteUnmuteFromTerminal(t *testing.T) {
 
 	// Verify muted
 	cl := s.GetClient("alice")
-	if cl == nil || !cl.Muted {
+	if cl == nil || !cl.IsMuted() {
 		t.Error("alice should be muted")
 	}
 
@@ -3661,7 +3666,7 @@ func TestAdminNameChangeLifecycle(t *testing.T) {
 
 	// Verify admin retained
 	cl := s.GetClient("alice2")
-	if cl == nil || !cl.Admin {
+	if cl == nil || !cl.IsAdmin() {
 		t.Error("admin should retain privileges after name change")
 	}
 
@@ -3734,7 +3739,7 @@ func TestDemotionRemovesFromAdminsJson(t *testing.T) {
 	onboard(c2, "alice")
 
 	cl := s.GetClient("alice")
-	if cl != nil && cl.Admin {
+	if cl != nil && cl.IsAdmin() {
 		t.Error("demoted client should NOT get admin restored on reconnect")
 	}
 }
@@ -5216,51 +5221,61 @@ func TestHeartbeatInvisibleUnderNormalConditions(t *testing.T) {
 	}
 }
 
-func TestHeartbeatSlowConnectionWarning(t *testing.T) {
-	// With net.Pipe(), when the client doesn't read, the heartbeat's write probe
-	// blocks and times out. A timeout is treated as an unstable connection, so the
-	// server sends "Connection unstable..." — exactly what we want to verify.
+func TestHeartbeatTimeoutDisconnectsUnresponsiveClient(t *testing.T) {
+	// Spec 11: "A client that fails to respond within 5 seconds of a health check
+	// is treated as disconnected." With net.Pipe(), not reading causes the heartbeat
+	// probe write to block indefinitely, triggering the timeout path which now
+	// disconnects the client (not just warns).
 	s := newHeartbeatServer(t)
+
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
 
 	alice := connectPipe(s)
 	defer alice.Close()
 	onboard(alice, "alice")
+	readUntil(bob, "alice has joined", time.Second)
 
-	// Do NOT read from the pipe — let the heartbeat probe's write block and timeout.
-	// After the timeout, the server sends "Connection unstable..." via the message channel.
-	// Then start reading to collect the warning.
-	time.Sleep(200 * time.Millisecond)
-
-	text, err := readUntil(alice, "Connection unstable...", 3*time.Second)
+	// Do NOT read from alice's pipe — the heartbeat probe write will block.
+	// After the timeout (50ms), the server disconnects alice.
+	// Bob should see alice's leave notification.
+	text, err := readUntil(bob, "alice has left", 2*time.Second)
 	if err != nil {
-		t.Fatalf("expected 'Connection unstable...' warning, got err=%v, text=%q", err, text)
+		t.Fatalf("unresponsive client should be disconnected on heartbeat timeout: %v (got: %q)", err, text)
+	}
+	if !strings.Contains(text, "alice has left our chat...") {
+		t.Errorf("expected standard leave notification, got: %q", text)
 	}
 }
 
 func TestHeartbeatSlowButAliveNotRemoved(t *testing.T) {
-	// Verify that a client whose probe writes consistently time out (slow link)
-	// is warned but NOT disconnected. With net.Pipe(), not reading simulates this.
+	// Verify that a client who actively reads (consuming heartbeat probes) stays
+	// connected through multiple heartbeat cycles. The pipe reader drains data
+	// so probe writes complete quickly, keeping the client alive.
 	s := newHeartbeatServer(t)
 
 	alice := connectPipe(s)
 	defer alice.Close()
 	onboard(alice, "alice")
 
-	// Don't read for a while — heartbeat probes will timeout
-	time.Sleep(400 * time.Millisecond)
-
-	// Now read — we should see "Connection unstable..." warnings but alice is alive
-	text, err := readUntil(alice, "Connection unstable...", 3*time.Second)
-	if err != nil {
-		t.Fatalf("expected unstable warnings (client should still be connected): %v", err)
+	// Actively read from alice's pipe for several heartbeat cycles (500ms at 100ms interval).
+	// This ensures probe writes complete and alice is not disconnected.
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		alice.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		n, _ := alice.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
 	}
-	if !strings.Contains(text, "Connection unstable...") {
-		t.Errorf("expected 'Connection unstable...' in output, got: %q", text)
-	}
+	alice.SetReadDeadline(time.Time{})
 
 	// Prove alice is still connected by sending a message
 	fmt.Fprintf(alice, "still here\n")
-	_, err = readUntil(alice, "][alice]:", 2*time.Second)
+	_, err := readUntil(alice, "][alice]:", 2*time.Second)
 	if err != nil {
 		t.Fatalf("slow-but-alive client should NOT be removed, err: %v", err)
 	}
@@ -5451,6 +5466,72 @@ func TestHeartbeatStopsDuringShutdown(t *testing.T) {
 	text, _ := readUntil(alice, "shutting down", 2*time.Second)
 	if !strings.Contains(text, "Server is shutting down") {
 		t.Errorf("expected shutdown message, got: %q", text)
+	}
+}
+
+func TestHeartbeatTimeoutOpensQueueSlot(t *testing.T) {
+	// Spec 11 + Spec 03: when heartbeat removes an unresponsive client,
+	// a queued client should be admitted (admitFromQueue triggered).
+	s := newHeartbeatServer(t)
+
+	// Fill 10 active slots. Each client needs a goroutine draining its pipe
+	// so heartbeat probe writes complete (keeping them alive).
+	conns := make([]net.Conn, 10)
+	stopDrain := make([]chan struct{}, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+		stopDrain[i] = make(chan struct{})
+		go func(c net.Conn, stop chan struct{}) {
+			buf := make([]byte, 4096)
+			for {
+				c.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+				c.Read(buf)
+				select {
+				case <-stop:
+					return
+				default:
+				}
+			}
+		}(conns[i], stopDrain[i])
+	}
+	// Clean up all drain goroutines at end of test
+	defer func() {
+		for i := 1; i < 10; i++ {
+			select {
+			case <-stopDrain[i]:
+			default:
+				close(stopDrain[i])
+			}
+		}
+	}()
+
+	// Wait for all joins to propagate
+	time.Sleep(200 * time.Millisecond)
+
+	// Queue an 11th client
+	q := connectPipe(s)
+	defer q.Close()
+	readUntil(q, "yes/no", 2*time.Second)
+	fmt.Fprintf(q, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	if got := s.GetQueueLength(); got != 1 {
+		t.Fatalf("expected 1 in queue, got %d", got)
+	}
+
+	// Stop draining user0's pipe — heartbeat probe will block and timeout,
+	// causing user0 to be disconnected and freeing a slot for the queued client.
+	close(stopDrain[0])
+
+	// The queued client should now be admitted and receive the welcome banner
+	text, err := readUntil(q, "[ENTER YOUR NAME]:", 3*time.Second)
+	if err != nil {
+		t.Fatalf("queued client should be admitted after heartbeat removal: %v (got: %q)", err, text)
+	}
+	if !strings.Contains(text, "Welcome to TCP-Chat!") {
+		t.Error("queued client should receive the full welcome banner")
 	}
 }
 
@@ -5990,7 +6071,7 @@ func TestInputContinuityAnnouncementMidType(t *testing.T) {
 	readUntil(c1, "admin has joined", time.Second)
 
 	// Promote admin
-	s.GetClient("admin").Admin = true
+	s.GetClient("admin").SetAdmin(true)
 
 	// Alice types "ann"
 	sendCharByChar(c1, "ann")
@@ -6031,7 +6112,7 @@ func TestInputContinuityModerationMidType(t *testing.T) {
 	readUntil(c2, "target has joined", time.Second)
 
 	// Promote admin
-	s.GetClient("admin").Admin = true
+	s.GetClient("admin").SetAdmin(true)
 
 	// Alice types "mod"
 	sendCharByChar(c1, "mod")
@@ -6615,6 +6696,221 @@ func TestEdgeCaseTwoNameChangesToSameNameSimultaneous(t *testing.T) {
 
 	if successes != 1 {
 		t.Errorf("exactly one name change should succeed, got %d", successes)
+	}
+}
+
+// ==================== Task 28: Data Race Fixes (Muted, Admin, LastActivity) ====================
+
+func TestConcurrentMuteUnmuteWhileTargetSends(t *testing.T) {
+	// Spec 09 + race safety: concurrent mute/unmute from admin while target sends
+	// messages must not race. This test is meaningless without -race but documents
+	// the requirement.
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	s.HeartbeatInterval = 1 * time.Hour
+
+	admin := connectPipe(s)
+	defer admin.Close()
+	onboard(admin, "admin")
+	s.GetClient("admin").SetAdmin(true)
+
+	target := connectPipe(s)
+	defer target.Close()
+	onboard(target, "target")
+	readUntil(admin, "target has joined", time.Second)
+
+	var wg sync.WaitGroup
+	// Goroutine 1: admin mutes/unmutes target repeatedly
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			fmt.Fprintf(admin, "/mute target\n")
+			readUntil(admin, "][admin]:", time.Second)
+			fmt.Fprintf(admin, "/unmute target\n")
+			readUntil(admin, "][admin]:", time.Second)
+		}
+	}()
+	// Goroutine 2: target sends messages repeatedly
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(target, "msg%d\n", i)
+			readUntil(target, "][target]:", time.Second)
+		}
+	}()
+	wg.Wait()
+}
+
+func TestConcurrentPromoteDemoteWhileTargetRunsHelp(t *testing.T) {
+	// Race safety: concurrent promote/demote while target runs /help
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	s.HeartbeatInterval = 1 * time.Hour
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	target := connectPipe(s)
+	defer target.Close()
+	onboard(target, "target")
+
+	var wg sync.WaitGroup
+	// Goroutine 1: operator promotes/demotes target repeatedly
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			s.OperatorDispatch("/promote target")
+			time.Sleep(time.Millisecond)
+			s.OperatorDispatch("/demote target")
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	// Goroutine 2: target runs /help repeatedly (reads c.IsAdmin())
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(target, "/help\n")
+			readUntil(target, "][target]:", time.Second)
+		}
+	}()
+	wg.Wait()
+}
+
+func TestConcurrentListWhileAnotherSends(t *testing.T) {
+	// Race safety: /list reads LastActivity while another client updates it
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	s.HeartbeatInterval = 1 * time.Hour
+
+	lister := connectPipe(s)
+	defer lister.Close()
+	onboard(lister, "lister")
+
+	sender := connectPipe(s)
+	defer sender.Close()
+	onboard(sender, "sender")
+	readUntil(lister, "sender has joined", time.Second)
+
+	var wg sync.WaitGroup
+	// Goroutine 1: lister runs /list repeatedly (reads LastActivity)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			fmt.Fprintf(lister, "/list\n")
+			readUntil(lister, "][lister]:", time.Second)
+		}
+	}()
+	// Goroutine 2: sender sends messages (writes LastActivity)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			fmt.Fprintf(sender, "msg%d\n", i)
+			readUntil(sender, "][sender]:", time.Second)
+		}
+	}()
+	wg.Wait()
+}
+
+// ==================== Task 29: Promote/Demote Broadcast ====================
+
+func TestPromoteBroadcastToAllClients(t *testing.T) {
+	// Spec 09 §Visibility: promote must broadcast to all connected clients.
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	s.HeartbeatInterval = 1 * time.Hour
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
+	readUntil(alice, "bob has joined", time.Second)
+
+	charlie := connectPipe(s)
+	defer charlie.Close()
+	onboard(charlie, "charlie")
+	readUntil(alice, "charlie has joined", time.Second)
+	readUntil(bob, "charlie has joined", time.Second)
+
+	// Operator promotes alice
+	s.OperatorDispatch("/promote alice")
+
+	// Bob and charlie should see the broadcast
+	textBob, err := readUntil(bob, "alice was promoted", 2*time.Second)
+	if err != nil {
+		t.Fatalf("bob should see promote broadcast: %v (got: %q)", err, textBob)
+	}
+	if !strings.Contains(textBob, "alice was promoted by Server") {
+		t.Errorf("expected 'alice was promoted by Server', got: %q", textBob)
+	}
+
+	textCharlie, err := readUntil(charlie, "alice was promoted", 2*time.Second)
+	if err != nil {
+		t.Fatalf("charlie should see promote broadcast: %v", err)
+	}
+	if !strings.Contains(textCharlie, "alice was promoted by Server") {
+		t.Errorf("expected 'alice was promoted by Server', got: %q", textCharlie)
+	}
+}
+
+func TestDemoteBroadcastToAllClients(t *testing.T) {
+	// Spec 09 §Visibility: demote must broadcast to all connected clients.
+	s := New("0")
+	s.adminsFile = filepath.Join(t.TempDir(), "admins.json")
+	s.HeartbeatInterval = 1 * time.Hour
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	bob := connectPipe(s)
+	defer bob.Close()
+	onboard(bob, "bob")
+	readUntil(alice, "bob has joined", time.Second)
+
+	charlie := connectPipe(s)
+	defer charlie.Close()
+	onboard(charlie, "charlie")
+	readUntil(alice, "charlie has joined", time.Second)
+	readUntil(bob, "charlie has joined", time.Second)
+
+	// Promote alice first
+	s.OperatorDispatch("/promote alice")
+	readUntil(bob, "alice was promoted", 2*time.Second)
+	readUntil(charlie, "alice was promoted", 2*time.Second)
+	readUntil(alice, "promoted", 2*time.Second)
+
+	// Demote alice
+	s.OperatorDispatch("/demote alice")
+
+	textBob, err := readUntil(bob, "alice was demoted", 2*time.Second)
+	if err != nil {
+		t.Fatalf("bob should see demote broadcast: %v (got: %q)", err, textBob)
+	}
+	if !strings.Contains(textBob, "alice was demoted by Server") {
+		t.Errorf("expected 'alice was demoted by Server', got: %q", textBob)
+	}
+
+	textCharlie, err := readUntil(charlie, "alice was demoted", 2*time.Second)
+	if err != nil {
+		t.Fatalf("charlie should see demote broadcast: %v", err)
+	}
+	if !strings.Contains(textCharlie, "alice was demoted by Server") {
+		t.Errorf("expected 'alice was demoted by Server', got: %q", textCharlie)
 	}
 }
 

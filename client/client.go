@@ -31,21 +31,25 @@ type writeMsg struct {
 
 // Client represents a single connected user with its own write goroutine.
 type Client struct {
-	Conn         net.Conn
-	Username     string
-	JoinTime     time.Time
-	LastActivity time.Time
-	Muted        bool
-	Admin        bool
-	IP           string
+	Conn     net.Conn
+	Username string
+	JoinTime time.Time
+	IP       string
+
+	// lastActivity, muted, admin are accessed from multiple goroutines (handler,
+	// operator, heartbeat) — protected by mu alongside lastInput et al.
+	lastActivity time.Time
+	muted        bool
+	admin        bool
 
 	msgChan   chan writeMsg
 	done      chan struct{}
 	closeOnce sync.Once
 	scanner   *bufio.Scanner
 
-	// mu protects fields accessed concurrently by the handler goroutine and
-	// the heartbeat goroutine: lastInput, disconnectReason, and echoMode.
+	// mu protects fields accessed concurrently by multiple goroutines (handler,
+	// operator, heartbeat): lastInput, disconnectReason, echoMode, lastActivity,
+	// muted, and admin.
 	mu               sync.Mutex
 	lastInput        time.Time
 	disconnectReason string
@@ -179,6 +183,48 @@ func (c *Client) ForceDisconnectReason(reason string) {
 	c.mu.Lock()
 	c.disconnectReason = reason
 	c.mu.Unlock()
+}
+
+// SetLastActivity records the time the client last sent a chat message.
+func (c *Client) SetLastActivity(t time.Time) {
+	c.mu.Lock()
+	c.lastActivity = t
+	c.mu.Unlock()
+}
+
+// GetLastActivity returns the time the client last sent a chat message.
+func (c *Client) GetLastActivity() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.lastActivity
+}
+
+// SetMuted sets whether the client is muted.
+func (c *Client) SetMuted(v bool) {
+	c.mu.Lock()
+	c.muted = v
+	c.mu.Unlock()
+}
+
+// IsMuted reports whether the client is muted.
+func (c *Client) IsMuted() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.muted
+}
+
+// SetAdmin sets whether the client has admin privileges.
+func (c *Client) SetAdmin(v bool) {
+	c.mu.Lock()
+	c.admin = v
+	c.mu.Unlock()
+}
+
+// IsAdmin reports whether the client has admin privileges.
+func (c *Client) IsAdmin() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.admin
 }
 
 // ---------- writeLoop: single goroutine responsible for all Conn writes ----------

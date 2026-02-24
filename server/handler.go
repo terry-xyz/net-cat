@@ -108,7 +108,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	// Auto-restore admin privileges for known admins
 	if s.IsKnownAdmin(c.Username) {
-		c.Admin = true
+		c.SetAdmin(true)
 		c.Send("Welcome back, admin!\n")
 	}
 
@@ -333,7 +333,7 @@ func (s *Server) handleChatMessage(c *client.Client, line string) {
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	if c.Muted {
+	if c.IsMuted() {
 		c.Send("You are muted.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
@@ -348,7 +348,7 @@ func (s *Server) handleChatMessage(c *client.Client, line string) {
 	}
 	s.recordEvent(msg)
 	s.Broadcast(msg.Display()+"\n", c.Username)
-	c.LastActivity = now
+	c.SetLastActivity(now)
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
@@ -362,7 +362,7 @@ func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return false
 	}
-	clientPriv := cmd.GetPrivilegeLevel(c.Admin, false)
+	clientPriv := cmd.GetPrivilegeLevel(c.IsAdmin(), false)
 	if def.MinPriv > clientPriv {
 		c.Send("Insufficient privileges.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
@@ -407,7 +407,7 @@ func (s *Server) cmdList(c *client.Client) {
 	}
 	entries := make([]entry, 0, len(s.clients))
 	for n, cl := range s.clients {
-		entries = append(entries, entry{name: n, idle: time.Since(cl.LastActivity).Truncate(time.Second)})
+		entries = append(entries, entry{name: n, idle: time.Since(cl.GetLastActivity()).Truncate(time.Second)})
 	}
 	s.mu.RUnlock()
 
@@ -432,7 +432,7 @@ func (s *Server) cmdList(c *client.Client) {
 // ---------- /help (role-aware) ----------
 
 func (s *Server) cmdHelp(c *client.Client) {
-	priv := cmd.GetPrivilegeLevel(c.Admin, false)
+	priv := cmd.GetPrivilegeLevel(c.IsAdmin(), false)
 	c.Send("Available commands:\n")
 	for _, name := range cmd.CommandOrder {
 		def := cmd.Commands[name]
@@ -476,7 +476,7 @@ func (s *Server) cmdName(c *client.Client, args string) {
 	}
 
 	// Update admins.json if this client is an admin
-	if c.Admin {
+	if c.IsAdmin() {
 		s.RenameAdmin(oldName, newName)
 	}
 
@@ -620,13 +620,13 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	if target.Muted {
+	if target.IsMuted() {
 		c.Send(args + " is already muted.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
-	target.Muted = true
+	target.SetMuted(true)
 	modMsg := models.Message{
 		Timestamp: time.Now(),
 		Sender:    args,
@@ -653,13 +653,13 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	if !target.Muted {
+	if !target.IsMuted() {
 		c.Send(args + " is not muted.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
 
-	target.Muted = false
+	target.SetMuted(false)
 	modMsg := models.Message{
 		Timestamp: time.Now(),
 		Sender:    args,
@@ -705,12 +705,12 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	if target.Admin {
+	if target.IsAdmin() {
 		c.Send(args + " is already an admin.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	target.Admin = true
+	target.SetAdmin(true)
 	s.AddAdmin(args)
 	target.Send("You have been promoted to admin.\n")
 
@@ -722,7 +722,7 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 		Extra:     c.Username,
 	}
 	s.recordEvent(modMsg)
-	c.Send(args + " has been promoted to admin.\n")
+	s.BroadcastAll(models.FormatModeration(args, "promoted", c.Username) + "\n")
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
@@ -740,12 +740,12 @@ func (s *Server) cmdDemote(c *client.Client, args string) {
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	if !target.Admin {
+	if !target.IsAdmin() {
 		c.Send(args + " is not an admin.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	target.Admin = false
+	target.SetAdmin(false)
 	s.RemoveAdmin(args)
 	target.Send("Your admin privileges have been revoked.\n")
 
@@ -757,6 +757,6 @@ func (s *Server) cmdDemote(c *client.Client, args string) {
 		Extra:     c.Username,
 	}
 	s.recordEvent(modMsg)
-	c.Send(args + " has been demoted.\n")
+	s.BroadcastAll(models.FormatModeration(args, "demoted", c.Username) + "\n")
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }

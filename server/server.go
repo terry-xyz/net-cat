@@ -197,7 +197,7 @@ func (s *Server) RegisterClient(c *client.Client, name string) bool {
 	now := time.Now()
 	c.Username = name
 	c.JoinTime = now
-	c.LastActivity = now
+	c.SetLastActivity(now)
 	s.clients[name] = c
 	return true
 }
@@ -634,10 +634,14 @@ func (s *Server) startHeartbeat(c *client.Client) {
 					c.Send("Connection unstable...\n")
 				}
 			case <-time.After(timeout):
-				// Write is still blocked (e.g., pipe reader not consuming, or
-				// TCP kernel buffer full on dead peer). Warn but don't kill —
-				// TCP keepalive handles the dead peer case over time.
-				c.Send("Connection unstable...\n")
+				// Write probe timed out — client is unresponsive.
+				// Per spec 11: "A client that fails to respond within 5 seconds
+				// of a health check is treated as disconnected." Disconnect now;
+				// the deferred cleanup in handleConnection handles leave broadcast,
+				// logging, and queue admission.
+				c.SetDisconnectReason("drop")
+				c.Close()
+				return
 			case <-c.Done():
 				return
 			case <-s.quit:
@@ -759,7 +763,7 @@ func (s *Server) operatorCmdList() {
 	}
 	entries := make([]entry, 0, len(s.clients))
 	for n, cl := range s.clients {
-		entries = append(entries, entry{name: n, idle: time.Since(cl.LastActivity).Truncate(time.Second)})
+		entries = append(entries, entry{name: n, idle: time.Since(cl.GetLastActivity()).Truncate(time.Second)})
 	}
 	s.mu.RUnlock()
 
@@ -859,12 +863,12 @@ func (s *Server) operatorCmdMute(args string) {
 		s.operatorSend("User '" + args + "' not found.\n")
 		return
 	}
-	if target.Muted {
+	if target.IsMuted() {
 		s.operatorSend(args + " is already muted.\n")
 		return
 	}
 
-	target.Muted = true
+	target.SetMuted(true)
 	modMsg := models.Message{
 		Timestamp: time.Now(),
 		Sender:    args,
@@ -887,12 +891,12 @@ func (s *Server) operatorCmdUnmute(args string) {
 		s.operatorSend("User '" + args + "' not found.\n")
 		return
 	}
-	if !target.Muted {
+	if !target.IsMuted() {
 		s.operatorSend(args + " is not muted.\n")
 		return
 	}
 
-	target.Muted = false
+	target.SetMuted(false)
 	modMsg := models.Message{
 		Timestamp: time.Now(),
 		Sender:    args,
@@ -931,11 +935,11 @@ func (s *Server) operatorCmdPromote(args string) {
 		s.operatorSend("User '" + args + "' not found.\n")
 		return
 	}
-	if target.Admin {
+	if target.IsAdmin() {
 		s.operatorSend(args + " is already an admin.\n")
 		return
 	}
-	target.Admin = true
+	target.SetAdmin(true)
 	s.AddAdmin(args)
 	target.Send("You have been promoted to admin.\n")
 
@@ -947,6 +951,7 @@ func (s *Server) operatorCmdPromote(args string) {
 		Extra:     "Server",
 	}
 	s.recordEvent(modMsg)
+	s.BroadcastAll(models.FormatModeration(args, "promoted", "Server") + "\n")
 	s.operatorSend(args + " has been promoted to admin.\n")
 }
 
@@ -960,11 +965,11 @@ func (s *Server) operatorCmdDemote(args string) {
 		s.operatorSend("User '" + args + "' not found.\n")
 		return
 	}
-	if !target.Admin {
+	if !target.IsAdmin() {
 		s.operatorSend(args + " is not an admin.\n")
 		return
 	}
-	target.Admin = false
+	target.SetAdmin(false)
 	s.RemoveAdmin(args)
 	target.Send("Your admin privileges have been revoked.\n")
 
@@ -976,5 +981,6 @@ func (s *Server) operatorCmdDemote(args string) {
 		Extra:     "Server",
 	}
 	s.recordEvent(modMsg)
+	s.BroadcastAll(models.FormatModeration(args, "demoted", "Server") + "\n")
 	s.operatorSend(args + " has been demoted.\n")
 }

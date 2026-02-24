@@ -273,10 +273,14 @@ func TestIntegrationAdminWorkflow(t *testing.T) {
 
 	// Operator promotes alice
 	s.OperatorDispatch("/promote alice")
-	promText, _ := readUntil(alice, "promoted", 2*time.Second)
+	promText, _ := readUntil(alice, "You have been promoted", 2*time.Second)
 	if !strings.Contains(stripAnsi(promText), "promoted") {
 		t.Error("alice should be notified of promotion")
 	}
+	// Drain promote broadcast from all clients
+	readUntil(alice, "alice was promoted", 2*time.Second)
+	readUntil(bob, "alice was promoted", 2*time.Second)
+	readUntil(carol, "alice was promoted", 2*time.Second)
 
 	// Alice (now admin) kicks carol
 	fmt.Fprintf(alice, "/kick carol\n")
@@ -300,10 +304,13 @@ func TestIntegrationAdminWorkflow(t *testing.T) {
 	if !strings.Contains(stripAnsi(demText), "revoked") {
 		t.Error("alice should be notified of demotion")
 	}
+	// Drain demote broadcast from remaining clients
+	readUntil(alice, "alice was demoted", 2*time.Second)
+	readUntil(bob, "alice was demoted", 2*time.Second)
 
 	// Verify alice is no longer admin — try to kick bob
 	fmt.Fprintf(alice, "/kick bob\n")
-	errText, _ := readUntil(alice, "][alice]:", 2*time.Second)
+	errText, _ := readUntil(alice, "Insufficient", 2*time.Second)
 	if !strings.Contains(stripAnsi(errText), "Insufficient") {
 		t.Error("demoted alice should not be able to kick")
 	}
