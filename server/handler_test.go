@@ -4804,6 +4804,46 @@ func TestKickNonexistentUser(t *testing.T) {
 	}
 }
 
+// TestUserNotFoundErrorSuggestsListCommand verifies that all admin commands
+// include a "/list" recovery suggestion in their "user not found" error messages
+// per spec 13 §Error Message Quality.
+func TestUserNotFoundErrorSuggestsListCommand(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "admin")
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	commands := []string{"/kick ghost", "/ban ghost", "/mute ghost", "/unmute ghost"}
+	for _, cmd := range commands {
+		fmt.Fprintf(c1, "%s\n", cmd)
+		text, err := readUntil(c1, "/list", time.Second)
+		if err != nil || !strings.Contains(text, "Use /list to see connected users") {
+			t.Errorf("%s: expected '/list' recovery suggestion in not-found error, got: %q", cmd, text)
+		}
+	}
+}
+
+// TestOperatorUserNotFoundErrorSuggestsListCommand verifies operator-side commands
+// also include the "/list" recovery suggestion per spec 13 §Error Message Quality.
+func TestOperatorUserNotFoundErrorSuggestsListCommand(t *testing.T) {
+	s := newServerWithAdmins(t)
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	commands := []string{"/kick ghost", "/ban ghost", "/mute ghost", "/unmute ghost", "/promote ghost", "/demote ghost"}
+	for _, cmd := range commands {
+		buf.Reset()
+		s.OperatorDispatch(cmd)
+		out := buf.String()
+		if !strings.Contains(out, "Use /list to see connected users") {
+			t.Errorf("%s: expected '/list' recovery suggestion in not-found error, got: %q", cmd, out)
+		}
+	}
+}
+
 func TestMutedUserNameChangeStaysMuted(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)

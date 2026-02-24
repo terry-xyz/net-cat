@@ -861,7 +861,7 @@ func (s *Server) operatorCmdKick(args string) {
 		// Fallback: treat args as IP and search queued users (operator can see IPs via /list)
 		removed := s.RemoveFromQueueByIP(args)
 		if len(removed) == 0 {
-			s.operatorSend("User '" + args + "' not found.\n")
+			s.operatorSend("User '" + args + "' not found. Use /list to see connected users.\n")
 			return
 		}
 		for _, c := range removed {
@@ -903,7 +903,7 @@ func (s *Server) operatorCmdBan(args string) {
 		// Fallback: treat args as IP and search queued users (operator can see IPs via /list)
 		removed := s.RemoveFromQueueByIP(args)
 		if len(removed) == 0 {
-			s.operatorSend("User '" + args + "' not found.\n")
+			s.operatorSend("User '" + args + "' not found. Use /list to see connected users.\n")
 			return
 		}
 		for _, c := range removed {
@@ -975,7 +975,7 @@ func (s *Server) operatorCmdMute(args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		s.operatorSend("User '" + args + "' not found.\n")
+		s.operatorSend("User '" + args + "' not found. Use /list to see connected users.\n")
 		return
 	}
 	if target.IsMuted() {
@@ -1003,7 +1003,7 @@ func (s *Server) operatorCmdUnmute(args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		s.operatorSend("User '" + args + "' not found.\n")
+		s.operatorSend("User '" + args + "' not found. Use /list to see connected users.\n")
 		return
 	}
 	if !target.IsMuted() {
@@ -1047,7 +1047,7 @@ func (s *Server) operatorCmdPromote(args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		s.operatorSend("User '" + args + "' not found.\n")
+		s.operatorSend("User '" + args + "' not found. Use /list to see connected users.\n")
 		return
 	}
 	if target.IsAdmin() {
@@ -1077,7 +1077,7 @@ func (s *Server) operatorCmdDemote(args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		s.operatorSend("User '" + args + "' not found.\n")
+		s.operatorSend("User '" + args + "' not found. Use /list to see connected users.\n")
 		return
 	}
 	if !target.IsAdmin() {

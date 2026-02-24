@@ -546,7 +546,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		c.Send("User '" + args + "' not found.\n")
+		c.Send("User '" + args + "' not found. Use /list to see connected users.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
@@ -581,7 +581,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		c.Send("User '" + args + "' not found.\n")
+		c.Send("User '" + args + "' not found. Use /list to see connected users.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
@@ -649,7 +649,7 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		c.Send("User '" + args + "' not found.\n")
+		c.Send("User '" + args + "' not found. Use /list to see connected users.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
@@ -682,7 +682,7 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		c.Send("User '" + args + "' not found.\n")
+		c.Send("User '" + args + "' not found. Use /list to see connected users.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
@@ -734,7 +734,7 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		c.Send("User '" + args + "' not found.\n")
+		c.Send("User '" + args + "' not found. Use /list to see connected users.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
@@ -769,7 +769,7 @@ func (s *Server) cmdDemote(c *client.Client, args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		c.Send("User '" + args + "' not found.\n")
+		c.Send("User '" + args + "' not found. Use /list to see connected users.\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
