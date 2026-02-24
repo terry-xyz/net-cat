@@ -6914,6 +6914,120 @@ func TestDemoteBroadcastToAllClients(t *testing.T) {
 	}
 }
 
+// ==================== Task 5: Edge Case Tests ====================
+
+// TestShutdownConcurrentMultipleSignals verifies that multiple goroutines
+// calling Shutdown() simultaneously do not panic, deadlock, or double-close
+// channels. This covers the spec 01 §Edge Cases requirement: "Multiple rapid
+// interrupt signals: server processes the first and ignores subsequent ones."
+func TestShutdownConcurrentMultipleSignals(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 100 * time.Millisecond
+
+	c1 := connectPipe(s)
+	defer c1.Close()
+	onboard(c1, "alice")
+
+	// Fire 10 concurrent Shutdown calls to stress the sync.Once path.
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.Shutdown() // must not panic or deadlock
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All concurrent Shutdown() calls completed without panic.
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent Shutdown() calls should not deadlock")
+	}
+}
+
+// TestWhisperRecipientDisconnectedBeforeDelivery verifies that when the whisper
+// recipient disconnects between typing the whisper and pressing Enter, the
+// sender receives a "not found" error rather than a false delivery confirmation.
+// (Spec 07 §Edge Cases)
+func TestWhisperRecipientDisconnectedBeforeDelivery(t *testing.T) {
+	s := New("0")
+
+	alice := connectPipe(s)
+	defer alice.Close()
+	onboard(alice, "alice")
+
+	bob := connectPipe(s)
+	onboard(bob, "bob")
+	readUntil(alice, "bob has joined", time.Second)
+
+	// Bob disconnects — simulates recipient leaving while alice is typing.
+	bob.Close()
+	// Alice sees bob's leave notification; drain it before sending the whisper.
+	readUntil(alice, "bob has left", 2*time.Second)
+
+	// Alice now sends the whisper. Bob is already gone from the clients map.
+	fmt.Fprintf(alice, "/whisper bob hey there\n")
+	text, err := readUntil(alice, "][alice]:", 2*time.Second)
+	if err != nil {
+		t.Fatalf("alice should get a response after whisper attempt: %v", err)
+	}
+	if !strings.Contains(text, "not found") {
+		t.Errorf("expected 'not found' error when whispering to disconnected user, got: %q", text)
+	}
+	if !strings.Contains(text, "bob") {
+		t.Errorf("error should name the disconnected recipient 'bob', got: %q", text)
+	}
+}
+
+// TestShutdownNotifiesMultipleQueuedClients verifies that when the server shuts
+// down, ALL queued clients (not just the first) receive the shutdown message.
+// This strengthens TestShutdownNotifiesQueuedClients which only tested a single
+// queued client. (Spec 03 §Edge Cases)
+func TestShutdownNotifiesMultipleQueuedClients(t *testing.T) {
+	s := New("0")
+	s.ShutdownTimeout = 300 * time.Millisecond
+
+	// Fill all 10 active slots.
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipe(s)
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Add 3 queued clients.
+	queued := make([]net.Conn, 3)
+	for i := 0; i < 3; i++ {
+		queued[i] = connectPipe(s)
+		defer queued[i].Close()
+		readUntil(queued[i], "yes/no", 2*time.Second)
+		fmt.Fprintf(queued[i], "yes\n")
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Shutdown in background so we can read from queued clients.
+	go s.Shutdown()
+
+	// Every queued client should receive the shutdown notification.
+	for i, q := range queued {
+		text, err := readUntil(q, "shutting down", 3*time.Second)
+		if err != nil {
+			t.Errorf("queued client #%d should receive shutdown message: %v (got: %q)", i+1, err, text)
+			continue
+		}
+		if !strings.Contains(text, "Server is shutting down. Goodbye!") {
+			t.Errorf("queued client #%d: expected shutdown message, got: %q", i+1, text)
+		}
+	}
+}
+
 // TestEdgeCaseAllRaceDetectorPasses is a meta-test that documents that the full
 // test suite passes with -race enabled. This test itself is a no-op — the real
 // verification is running `go test ./... -race`.

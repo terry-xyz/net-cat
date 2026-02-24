@@ -16,6 +16,42 @@ import (
 	"time"
 )
 
+// ==================== Spec 01 Edge Case: Port Already In Use ====================
+
+// TestIntegrationPortAlreadyInUseReturnsError verifies that when the port is
+// already occupied by another listener, Server.Start() returns a clear error
+// and does not hang or retry silently. (Spec 01 §Edge Cases)
+func TestIntegrationPortAlreadyInUseReturnsError(t *testing.T) {
+	// Occupy a random port on all interfaces (matching the server's ":port" bind).
+	blocker, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatalf("could not create blocker listener: %v", err)
+	}
+	defer blocker.Close()
+
+	// Extract the port the OS assigned.
+	_, port, _ := net.SplitHostPort(blocker.Addr().String())
+
+	// Create a server targeting the same port.
+	s := New(port)
+
+	// Start should fail immediately with a bind error.
+	errCh := make(chan error, 1)
+	go func() { errCh <- s.Start() }()
+
+	select {
+	case startErr := <-errCh:
+		if startErr == nil {
+			t.Fatal("Start() should return a non-nil error when the port is already in use")
+		}
+		if !strings.Contains(startErr.Error(), "bind") && !strings.Contains(startErr.Error(), "address already in use") && !strings.Contains(startErr.Error(), "Only one usage") {
+			t.Errorf("expected a bind/address-in-use error, got: %v", startErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start() should return immediately on port conflict, but it hung for 5 seconds")
+	}
+}
+
 // ==================== Integration Test Helpers ====================
 
 // safeWriter is a thread-safe writer for capturing operator output.
