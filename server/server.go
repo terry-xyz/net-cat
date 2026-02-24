@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,6 +17,10 @@ import (
 	"sync"
 	"time"
 )
+
+// errCapacityFull is returned by RegisterClient when the server has reached
+// the maximum number of active clients. The caller should re-queue the client.
+var errCapacityFull = errors.New("server at capacity")
 
 // QueueEntry represents a client waiting for a slot to open.
 type QueueEntry struct {
@@ -184,22 +189,27 @@ func (s *Server) UntrackClient(c *client.Client) {
 
 // ---------- client map ----------
 
-// RegisterClient atomically checks uniqueness and adds the client.
-func (s *Server) RegisterClient(c *client.Client, name string) bool {
+// RegisterClient atomically checks capacity, uniqueness, and adds the client.
+// Returns nil on success, errCapacityFull if at max active clients, or a
+// generic error if the name is taken or reserved.
+func (s *Server) RegisterClient(c *client.Client, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.clients) >= MaxActiveClients {
+		return errCapacityFull
+	}
 	if _, exists := s.clients[name]; exists {
-		return false
+		return errors.New("name taken")
 	}
 	if s.reservedNames[name] {
-		return false
+		return errors.New("name reserved")
 	}
 	now := time.Now()
 	c.Username = name
 	c.JoinTime = now
 	c.SetLastActivity(now)
 	s.clients[name] = c
-	return true
+	return nil
 }
 
 func (s *Server) RemoveClient(username string) {

@@ -94,7 +94,17 @@ func (s *Server) handleConnection(conn net.Conn) {
 			c.Send("Name '" + name + "' is reserved.\n" + NamePrompt)
 			continue
 		}
-		if !s.RegisterClient(c, name) {
+		if err := s.RegisterClient(c, name); err != nil {
+			if err == errCapacityFull {
+				// Race: server filled while client was entering name. Re-queue.
+				c.Send("Chat became full. Entering queue...\n")
+				if !s.checkOrQueue(c) {
+					c.Close()
+					return
+				}
+				c.Send(NamePrompt)
+				continue
+			}
 			c.Send("Name is already taken.\n" + NamePrompt)
 			continue
 		}

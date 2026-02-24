@@ -934,7 +934,7 @@ func TestRegisterClientConcurrent(t *testing.T) {
 			sConn, _ := net.Pipe()
 			c := client.NewClient(sConn)
 			defer c.Close()
-			results <- s.RegisterClient(c, "samename")
+			results <- (s.RegisterClient(c, "samename") == nil)
 		}()
 	}
 
@@ -946,6 +946,85 @@ func TestRegisterClientConcurrent(t *testing.T) {
 	}
 	if successes != 1 {
 		t.Errorf("expected exactly 1 success out of 50 concurrent registrations, got %d", successes)
+	}
+}
+
+// TestRegisterClientRejectsAtCapacity verifies that RegisterClient enforces
+// the MaxActiveClients limit under its write lock, preventing TOCTOU races
+// where two goroutines pass checkOrQueue simultaneously but only one can register.
+func TestRegisterClientRejectsAtCapacity(t *testing.T) {
+	s := New("0")
+	// Fill to max capacity
+	conns := make([]net.Conn, MaxActiveClients)
+	for i := 0; i < MaxActiveClients; i++ {
+		sConn, cConn := net.Pipe()
+		conns[i] = cConn
+		defer sConn.Close()
+		defer cConn.Close()
+		c := client.NewClient(sConn)
+		if err := s.RegisterClient(c, fmt.Sprintf("user%d", i)); err != nil {
+			t.Fatalf("registration %d failed: %v", i, err)
+		}
+	}
+	// 11th should fail with errCapacityFull
+	sConn, cConn := net.Pipe()
+	defer sConn.Close()
+	defer cConn.Close()
+	c := client.NewClient(sConn)
+	err := s.RegisterClient(c, "overflow")
+	if err != errCapacityFull {
+		t.Errorf("expected errCapacityFull, got %v", err)
+	}
+	if s.GetClientCount() != MaxActiveClients {
+		t.Errorf("expected %d clients, got %d", MaxActiveClients, s.GetClientCount())
+	}
+}
+
+// TestRegisterClientConcurrentCapacity verifies that when many goroutines race
+// to claim the last slot, exactly one succeeds and the rest get errCapacityFull.
+// This is the core test for the TOCTOU fix in RegisterClient (spec 03).
+func TestRegisterClientConcurrentCapacity(t *testing.T) {
+	s := New("0")
+	// Fill to 9
+	for i := 0; i < MaxActiveClients-1; i++ {
+		sConn, cConn := net.Pipe()
+		defer sConn.Close()
+		defer cConn.Close()
+		c := client.NewClient(sConn)
+		if err := s.RegisterClient(c, fmt.Sprintf("user%d", i)); err != nil {
+			t.Fatalf("registration %d failed: %v", i, err)
+		}
+	}
+	// 20 goroutines race to register the 10th client
+	const racers = 20
+	results := make(chan error, racers)
+	for i := 0; i < racers; i++ {
+		go func(idx int) {
+			sConn, cConn := net.Pipe()
+			defer sConn.Close()
+			defer cConn.Close()
+			c := client.NewClient(sConn)
+			results <- s.RegisterClient(c, fmt.Sprintf("racer%d", idx))
+		}(i)
+	}
+	successes := 0
+	capFull := 0
+	for i := 0; i < racers; i++ {
+		err := <-results
+		if err == nil {
+			successes++
+		} else if err == errCapacityFull {
+			capFull++
+		}
+	}
+	if successes != 1 {
+		t.Errorf("expected exactly 1 success, got %d", successes)
+	}
+	if capFull != racers-1 {
+		t.Errorf("expected %d capacity-full rejections, got %d", racers-1, capFull)
+	}
+	if s.GetClientCount() != MaxActiveClients {
+		t.Errorf("expected %d clients, got %d", MaxActiveClients, s.GetClientCount())
 	}
 }
 
