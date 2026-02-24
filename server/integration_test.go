@@ -1014,26 +1014,27 @@ func TestIntegrationOperatorAllCommands(t *testing.T) {
 	delete(s.kickedIPs, "127.0.0.1")
 	s.mu.Unlock()
 
-	// Connect carol for ban test
-	carol := tcpOnboard(t, addr, "carol")
-
-	// /ban carol
-	s.OperatorDispatch("/ban carol")
-	time.Sleep(200 * time.Millisecond)
-	carol.Close()
-	readUntil(alice, "carol was banned", 2*time.Second)
-
-	// Clear ban for further testing
-	s.mu.Lock()
-	delete(s.bannedIPs, "127.0.0.1")
-	s.mu.Unlock()
-
-	// /demote alice
+	// /demote alice — must happen BEFORE ban test because banning on
+	// 127.0.0.1 collateral-disconnects all same-IP clients (NAT behavior).
 	s.OperatorDispatch("/demote alice")
 	readUntil(alice, "revoked", 2*time.Second)
 	if s.IsKnownAdmin("alice") {
 		t.Error("alice should no longer be admin after demote")
 	}
+
+	// Connect carol for ban test
+	carol := tcpOnboard(t, addr, "carol")
+
+	// /ban carol — this will also collateral-disconnect alice (same 127.0.0.1)
+	s.OperatorDispatch("/ban carol")
+	time.Sleep(200 * time.Millisecond)
+	carol.Close()
+	alice.Close()
+
+	// Clear ban for further testing
+	s.mu.Lock()
+	delete(s.bannedIPs, "127.0.0.1")
+	s.mu.Unlock()
 }
 
 // ==================== Test 16: Operator Inapplicable Commands ====================

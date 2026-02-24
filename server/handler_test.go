@@ -267,6 +267,45 @@ func TestOnboardingDisconnectDuringNamePrompt(t *testing.T) {
 	}
 }
 
+// TestOnboardingDisconnectDuringNamePromptNoNotification verifies that when a
+// client disconnects during the name prompt, no join or leave notification is
+// sent to other connected clients (spec 02 edge case).
+func TestOnboardingDisconnectDuringNamePromptNoNotification(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	onboard(c1, "alice")
+
+	// Connect a second client but disconnect it during name prompt
+	c2 := connectPipe(s)
+	readUntil(c2, "[ENTER YOUR NAME]:", time.Second)
+	c2.Close()
+	time.Sleep(200 * time.Millisecond)
+
+	// alice should NOT have received any join or leave notification
+	c1.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	for {
+		n, err := c1.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	c1.SetReadDeadline(time.Time{})
+	text := buf.String()
+
+	if strings.Contains(text, "has joined") {
+		t.Errorf("no join notification should be sent for client disconnecting during name prompt, got: %q", text)
+	}
+	if strings.Contains(text, "has left") {
+		t.Errorf("no leave notification should be sent for client disconnecting during name prompt, got: %q", text)
+	}
+}
+
 func TestOnboardingCRLFStripped(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3581,9 +3620,10 @@ func TestOperatorKickFromTerminal(t *testing.T) {
 
 func TestOperatorBanFromTerminal(t *testing.T) {
 	s := newServerWithAdmins(t)
-	c1 := connectPipe(s)
+	// Use distinct IPs so banning bob doesn't collateral-ban alice (NAT behavior)
+	c1 := connectPipeWithIP(s, "10.0.0.80:1111")
 	defer c1.Close()
-	c2 := connectPipe(s)
+	c2 := connectPipeWithIP(s, "10.0.0.81:2222")
 	defer c2.Close()
 
 	onboard(c1, "alice")
@@ -4174,11 +4214,12 @@ func TestBanDisconnectsTarget(t *testing.T) {
 
 func TestBanBroadcastsNotification(t *testing.T) {
 	s := newServerWithAdmins(t)
-	c1 := connectPipe(s)
+	// Use distinct IPs so banning alice doesn't collateral-ban bob (NAT behavior)
+	c1 := connectPipeWithIP(s, "10.0.0.82:1111")
 	defer c1.Close()
-	c2 := connectPipe(s)
+	c2 := connectPipeWithIP(s, "10.0.0.83:2222")
 	defer c2.Close()
-	c3 := connectPipe(s)
+	c3 := connectPipeWithIP(s, "10.0.0.84:3333")
 	defer c3.Close()
 
 	onboard(c1, "admin")
@@ -4909,6 +4950,141 @@ func TestBanSameIPBlocksAll(t *testing.T) {
 	}
 	if strings.Contains(text, "[ENTER YOUR NAME]") {
 		t.Error("same IP should be blocked after ban, should not see name prompt")
+	}
+}
+
+// ==================== NAT Ban: disconnect all clients sharing banned IP ====================
+
+// TestBanNATDisconnectsAllClientsOnSameIP verifies that banning a user also
+// disconnects all other currently-active clients sharing the same IP (NAT scenario),
+// as required by spec 09 edge case: "Banning on shared NAT address: all users
+// from that address are affected."
+func TestBanNATDisconnectsAllClientsOnSameIP(t *testing.T) {
+	s, logsDir := newServerWithLoggerAndAdmins(t)
+	c1 := connectPipe(s) // admin on pipe (different IP)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.50:1234") // alice
+	defer c2.Close()
+
+	// Drain bob's pipe concurrently to prevent writeLoop blocking on unbuffered net.Pipe
+	c3 := connectPipeWithIP(s, "10.0.0.50:5678") // bob (same IP as alice)
+	defer c3.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	onboard(c3, "bob")
+	readUntil(c1, "bob has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Start draining bob's output so the server's writeLoop doesn't block
+	go func() {
+		tmp := make([]byte, 4096)
+		for {
+			if _, err := c3.Read(tmp); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Ban alice — bob should also be disconnected since they share 10.0.0.50
+	fmt.Fprintf(c1, "/ban alice\n")
+	// Admin should see ban notifications for BOTH alice and bob
+	readUntil(c1, "alice was banned by admin", time.Second)
+	text, err := readUntil(c1, "bob was banned by admin", time.Second)
+	if err != nil {
+		t.Fatalf("admin should see bob's ban notification, got: %q (err: %v)", text, err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Both alice and bob should be removed from the client map
+	if s.GetClient("alice") != nil {
+		t.Error("alice should be removed from client map after ban")
+	}
+	if s.GetClient("bob") != nil {
+		t.Error("bob (same IP as alice) should be removed from client map after ban")
+	}
+
+	// Verify both ban events are recorded in the log
+	logContent := readLogContent(t, logsDir)
+	if !strings.Contains(logContent, "alice") || !strings.Contains(logContent, "banned") {
+		t.Errorf("log should contain alice ban event, got: %q", logContent)
+	}
+	if !strings.Contains(logContent, "bob") || !strings.Contains(logContent, "banned") {
+		t.Errorf("log should contain bob ban event, got: %q", logContent)
+	}
+}
+
+// TestBanNATOperatorDisconnectsAllClientsOnSameIP verifies the operator's /ban
+// also disconnects all clients sharing the banned IP.
+func TestBanNATOperatorDisconnectsAllClientsOnSameIP(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipeWithIP(s, "10.0.0.60:1111") // alice
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.60:2222") // bob (same IP)
+	defer c2.Close()
+	c3 := connectPipeWithIP(s, "10.0.0.99:3333") // carol (different IP)
+	defer c3.Close()
+
+	onboard(c1, "alice")
+	onboard(c2, "bob")
+	onboard(c3, "carol")
+	readUntil(c3, "bob has joined", time.Second)
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	// Operator bans alice — bob (same IP) should also be disconnected
+	s.OperatorDispatch("/ban alice")
+	time.Sleep(300 * time.Millisecond)
+
+	if s.GetClient("alice") != nil {
+		t.Error("alice should be removed after operator ban")
+	}
+	if s.GetClient("bob") != nil {
+		t.Error("bob (same IP as alice) should be removed after operator ban")
+	}
+	// carol (different IP) should still be connected
+	if s.GetClient("carol") == nil {
+		t.Error("carol (different IP) should NOT be affected by ban")
+	}
+
+	// carol should see ban notifications
+	text, _ := readUntil(c3, "banned by Server", time.Second)
+	if !strings.Contains(text, "alice was banned by Server") {
+		t.Errorf("carol should see alice ban notification, got: %q", text)
+	}
+}
+
+// TestBanNATExcludesIssuer verifies that if the admin issuing /ban shares the
+// same IP as the target (e.g. both behind same NAT), the admin is NOT banned.
+func TestBanNATExcludesIssuer(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipeWithIP(s, "10.0.0.70:1111") // admin (same IP as target)
+	defer c1.Close()
+	c2 := connectPipeWithIP(s, "10.0.0.70:2222") // alice (same IP as admin)
+	defer c2.Close()
+
+	onboard(c1, "admin")
+	onboard(c2, "alice")
+	readUntil(c1, "alice has joined", time.Second)
+
+	s.OperatorDispatch("/promote admin")
+	readUntil(c1, "promoted", time.Second)
+
+	// Admin bans alice — admin should NOT be disconnected despite sharing IP
+	fmt.Fprintf(c1, "/ban alice\n")
+	readUntil(c1, "][admin]:", time.Second)
+
+	time.Sleep(200 * time.Millisecond)
+
+	if s.GetClient("alice") != nil {
+		t.Error("alice should be removed after ban")
+	}
+	if s.GetClient("admin") == nil {
+		t.Error("admin should NOT be removed — issuer is excluded from NAT ban")
 	}
 }
 
@@ -7288,5 +7464,65 @@ func TestOperatorListShowsQueuedClients(t *testing.T) {
 	}
 	if !strings.Contains(output, "#1") || !strings.Contains(output, "#2") {
 		t.Errorf("operator /list should show queue positions, got: %q", output)
+	}
+}
+
+// ==================== Corrupt admins.json handling ====================
+
+// TestLoadAdminsCorruptJSON verifies that a corrupted admins.json file causes
+// the server to start with no saved admins and print a warning to stderr,
+// as required by spec 10 edge case: "admins.json missing or corrupted on startup:
+// server starts with no saved admins, warning on server console."
+func TestLoadAdminsCorruptJSON(t *testing.T) {
+	s := New("0")
+	tmpDir := t.TempDir()
+	s.adminsFile = filepath.Join(tmpDir, "admins.json")
+
+	// Write a valid admins.json first, then corrupt it
+	if err := os.WriteFile(s.adminsFile, []byte(`["alice","bob"]`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.LoadAdmins()
+	if !s.IsKnownAdmin("alice") || !s.IsKnownAdmin("bob") {
+		t.Fatal("valid admins.json should load correctly")
+	}
+
+	// Now corrupt the file and create a fresh server
+	s2 := New("0")
+	s2.adminsFile = filepath.Join(tmpDir, "admins.json")
+	if err := os.WriteFile(s2.adminsFile, []byte(`{{{not valid json!!!`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Capture stderr to verify warning
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	s2.LoadAdmins()
+
+	w.Close()
+	var stderrBuf strings.Builder
+	tmp := make([]byte, 4096)
+	for {
+		n, err := r.Read(tmp)
+		if n > 0 {
+			stderrBuf.Write(tmp[:n])
+		}
+		if err != nil {
+			break
+		}
+	}
+	r.Close()
+	os.Stderr = oldStderr
+
+	stderrOutput := stderrBuf.String()
+	if !strings.Contains(stderrOutput, "corrupt admins.json") {
+		t.Errorf("corrupt admins.json should produce stderr warning, got: %q", stderrOutput)
+	}
+
+	// Server should have no admins
+	if s2.IsKnownAdmin("alice") || s2.IsKnownAdmin("bob") {
+		t.Error("corrupt admins.json should result in no saved admins")
 	}
 }

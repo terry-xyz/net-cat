@@ -4,6 +4,7 @@ import (
 	"net-cat/models"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -515,6 +516,76 @@ func TestLogPriorDayFileUnmodified(t *testing.T) {
 	priorContentAfter := readFileForDate(t, dir, "2026-02-19")
 	if priorContent != priorContentAfter {
 		t.Error("prior day's log file was modified when writing to current day")
+	}
+}
+
+// TestLogWritePermissionDenied verifies that when the log file cannot be written
+// (e.g. permission denied), the logger degrades gracefully: it prints an error to
+// stderr but does NOT panic or crash. As required by spec 12 edge case:
+// "Log file permissions prevent writing: error to console, chat continues."
+func TestLogWritePermissionDenied(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod-based permission test not reliable on Windows")
+	}
+
+	dir := filepath.Join(t.TempDir(), "logs")
+	l, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	// Write one message successfully to create the log file
+	ts := time.Date(2026, 2, 24, 10, 0, 0, 0, time.Local)
+	l.Log(models.Message{
+		Timestamp: ts,
+		Type:      models.MsgChat,
+		Sender:    "alice",
+		Content:   "before permission change",
+	})
+	l.Close()
+
+	// Make the directory read-only to prevent file creation/writing
+	if err := os.Chmod(dir, 0444); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0700) // restore for cleanup
+
+	// Create a new logger pointing at the read-only directory
+	// New() itself may fail since it calls MkdirAll, so we construct manually
+	l2 := &Logger{logsDir: dir}
+
+	// Capture stderr to verify error message
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	// This should NOT panic — it should log an error to stderr and return
+	l2.Log(models.Message{
+		Timestamp: ts,
+		Type:      models.MsgChat,
+		Sender:    "bob",
+		Content:   "after permission change",
+	})
+
+	w.Close()
+	var stderrBuf strings.Builder
+	tmp := make([]byte, 4096)
+	for {
+		n, readErr := r.Read(tmp)
+		if n > 0 {
+			stderrBuf.Write(tmp[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	r.Close()
+	os.Stderr = oldStderr
+
+	stderrOutput := stderrBuf.String()
+	if !strings.Contains(stderrOutput, "Logger error") && !strings.Contains(stderrOutput, "Logger write error") {
+		t.Errorf("permission denied should produce stderr error, got: %q", stderrOutput)
 	}
 }
 

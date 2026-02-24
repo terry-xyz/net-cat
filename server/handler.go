@@ -587,6 +587,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	}
 
 	targetIP := target.IP
+	bannedHost := extractHost(targetIP)
 	target.ForceDisconnectReason("banned")
 	s.RemoveClient(args)
 
@@ -602,7 +603,39 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	target.Send("You have been banned by " + c.Username + ".\n")
 	target.Close()
 	s.AddBanIP(targetIP)
-	s.admitFromQueue()
+
+	// Disconnect all other active clients sharing the banned IP (NAT scenario).
+	// Exclude the command issuer in case they share the same IP.
+	slotsOpened := 1
+	collateral := s.GetClientsByIP(bannedHost, c.Username)
+	for _, cc := range collateral {
+		cc.ForceDisconnectReason("banned")
+		ccName := cc.Username
+		s.RemoveClient(ccName)
+		collateralMsg := models.Message{
+			Timestamp: time.Now(),
+			Sender:    ccName,
+			Content:   "banned",
+			Type:      models.MsgModeration,
+			Extra:     c.Username,
+		}
+		s.recordEvent(collateralMsg)
+		s.Broadcast(models.FormatModeration(ccName, "banned", c.Username)+"\n", "")
+		cc.Send("You have been banned by " + c.Username + ".\n")
+		cc.Close()
+		slotsOpened++
+	}
+
+	// Remove queued users from the banned IP
+	queuedRemoved := s.RemoveFromQueueByIP(targetIP)
+	for _, qc := range queuedRemoved {
+		qc.Send("You have been banned by " + c.Username + ".\n")
+		qc.Close()
+	}
+
+	for i := 0; i < slotsOpened; i++ {
+		s.admitFromQueue()
+	}
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
