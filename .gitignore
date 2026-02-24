@@ -1,6 +1,2 @@
-specs/
-PROMPT_specs.md
-PROMPT_plan.md
-PROMPT_build.md
-loop.sh
-parse_stream.js
+logs/
+admins.json
