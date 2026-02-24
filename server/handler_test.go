@@ -6922,3 +6922,257 @@ func TestEdgeCaseAllRaceDetectorPasses(t *testing.T) {
 	// Task 24 requires all tests to pass with the race detector enabled.
 	// Run the full suite with: go test ./... -race -count=1 -timeout 90s
 }
+
+// ==================== Task 4: Kick/Ban Queued Users ====================
+// Spec 09 §Edge Cases: "Kicking a user who is currently in the queue (not yet
+// active): the user is removed and cannot reconnect for 5 minutes."
+// The operator identifies queued users by IP (visible via /list), since queued
+// users have not completed onboarding and have no name.
+
+// TestOperatorKickQueuedUserByIP verifies that the server operator can kick a
+// queued user by IP, removing them from the queue and blocking reconnection for
+// 5 minutes. (Spec 09 §Edge Cases)
+func TestOperatorKickQueuedUserByIP(t *testing.T) {
+	s := newServerWithAdmins(t)
+
+	// Fill 10 active slots
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipeWithIP(s, fmt.Sprintf("10.0.0.%d:1000", i))
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// 11th client from a distinct IP enters the queue
+	queuedIP := "10.0.1.1:2000"
+	q := connectPipeWithIP(s, queuedIP)
+	defer q.Close()
+	readUntil(q, "yes/no", 2*time.Second)
+	fmt.Fprintf(q, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	if s.GetQueueLength() != 1 {
+		t.Fatalf("expected 1 queued client, got %d", s.GetQueueLength())
+	}
+
+	// Operator kicks by IP (host part only, as shown by /list)
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+	s.OperatorDispatch("/kick 10.0.1.1")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Queue should be empty
+	if s.GetQueueLength() != 0 {
+		t.Errorf("queue should be empty after kick, got %d", s.GetQueueLength())
+	}
+
+	// IP should be blocked
+	blocked, msg := s.IsIPBlocked(queuedIP)
+	if !blocked {
+		t.Error("kicked queued IP should be blocked for 5 minutes")
+	}
+	if !strings.Contains(msg, "temporarily blocked") {
+		t.Errorf("expected temporary block message, got: %q", msg)
+	}
+
+	// Operator should receive confirmation
+	if !strings.Contains(buf.String(), "Queued user(s) from IP 10.0.1.1 have been kicked") {
+		t.Errorf("operator should get kick confirmation, got: %q", buf.String())
+	}
+}
+
+// TestOperatorBanQueuedUserByIP verifies that the server operator can ban a
+// queued user by IP, removing them from the queue and permanently blocking the
+// IP for the server session. (Spec 09 §Edge Cases)
+func TestOperatorBanQueuedUserByIP(t *testing.T) {
+	s := newServerWithAdmins(t)
+
+	// Fill 10 active slots
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipeWithIP(s, fmt.Sprintf("10.0.0.%d:1000", i))
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// 11th client from a distinct IP enters the queue
+	queuedIP := "10.0.2.1:3000"
+	q := connectPipeWithIP(s, queuedIP)
+	defer q.Close()
+	readUntil(q, "yes/no", 2*time.Second)
+	fmt.Fprintf(q, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	if s.GetQueueLength() != 1 {
+		t.Fatalf("expected 1 queued client, got %d", s.GetQueueLength())
+	}
+
+	// Operator bans by IP
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+	s.OperatorDispatch("/ban 10.0.2.1")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Queue should be empty
+	if s.GetQueueLength() != 0 {
+		t.Errorf("queue should be empty after ban, got %d", s.GetQueueLength())
+	}
+
+	// IP should be permanently banned
+	blocked, msg := s.IsIPBlocked(queuedIP)
+	if !blocked {
+		t.Error("banned queued IP should be blocked permanently")
+	}
+	if !strings.Contains(msg, "banned") {
+		t.Errorf("expected ban message, got: %q", msg)
+	}
+
+	// Operator should receive confirmation
+	if !strings.Contains(buf.String(), "Queued user(s) from IP 10.0.2.1 have been banned") {
+		t.Errorf("operator should get ban confirmation, got: %q", buf.String())
+	}
+}
+
+// TestOperatorKickQueuedPositionUpdates verifies that after kicking a queued
+// user by IP, remaining queued clients receive updated position numbers.
+// (Spec 09 §Edge Cases + Spec 03 position updates)
+func TestOperatorKickQueuedPositionUpdates(t *testing.T) {
+	s := newServerWithAdmins(t)
+
+	// Fill 10 active slots (each from a unique IP)
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipeWithIP(s, fmt.Sprintf("10.0.0.%d:1000", i))
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Queue 3 clients from different IPs
+	q1 := connectPipeWithIP(s, "10.1.0.1:2001")
+	defer q1.Close()
+	readUntil(q1, "yes/no", 2*time.Second)
+	fmt.Fprintf(q1, "yes\n")
+
+	q2 := connectPipeWithIP(s, "10.1.0.2:2002")
+	defer q2.Close()
+	readUntil(q2, "#2 in the queue", 2*time.Second)
+	fmt.Fprintf(q2, "yes\n")
+
+	q3 := connectPipeWithIP(s, "10.1.0.3:2003")
+	defer q3.Close()
+	readUntil(q3, "#3 in the queue", 2*time.Second)
+	fmt.Fprintf(q3, "yes\n")
+
+	time.Sleep(100 * time.Millisecond)
+	if s.GetQueueLength() != 3 {
+		t.Fatalf("expected 3 queued, got %d", s.GetQueueLength())
+	}
+
+	// Operator kicks the middle queued client (q2) by IP
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+	s.OperatorDispatch("/kick 10.1.0.2")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Queue should now have 2 entries
+	if s.GetQueueLength() != 2 {
+		t.Errorf("expected 2 queued after kick, got %d", s.GetQueueLength())
+	}
+
+	// q3 should receive a position update to #2
+	text, err := readUntil(q3, "#2 in the queue", 2*time.Second)
+	if err != nil {
+		t.Fatalf("q3 should receive position update to #2: %v (got: %q)", err, text)
+	}
+}
+
+// TestAdminKickQueuedUserNotFound verifies that a client admin (non-operator)
+// trying to /kick a queued user gets "not found" — admins cannot see IPs and
+// queued users have no name to target.
+func TestAdminKickQueuedUserNotFound(t *testing.T) {
+	s := newServerWithAdmins(t)
+
+	// Create an admin client
+	admin := connectPipeWithIP(s, "10.0.0.1:1000")
+	defer admin.Close()
+	onboard(admin, "admin1")
+	cl := s.GetClient("admin1")
+	cl.SetAdmin(true)
+
+	// Fill remaining 9 active slots
+	conns := make([]net.Conn, 9)
+	for i := 0; i < 9; i++ {
+		conns[i] = connectPipeWithIP(s, fmt.Sprintf("10.0.0.%d:1000", i+2))
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Queue an 11th client
+	q := connectPipeWithIP(s, "10.1.0.1:2000")
+	defer q.Close()
+	readUntil(q, "yes/no", 2*time.Second)
+	fmt.Fprintf(q, "yes\n")
+	time.Sleep(100 * time.Millisecond)
+
+	// Admin tries to kick by IP — should get "not found" because cmdKick
+	// only searches the active client map by name
+	fmt.Fprintf(admin, "/kick 10.1.0.1\n")
+	text, err := readUntil(admin, "not found", 2*time.Second)
+	if err != nil {
+		t.Fatalf("admin kick-by-IP should return not found: %v (got: %q)", err, text)
+	}
+
+	// Queue should still have the client
+	if s.GetQueueLength() != 1 {
+		t.Errorf("queued client should not be affected by admin kick, queue=%d", s.GetQueueLength())
+	}
+}
+
+// TestOperatorListShowsQueuedClients verifies that the operator's /list command
+// shows queued clients with their IPs, enabling IP-based moderation.
+func TestOperatorListShowsQueuedClients(t *testing.T) {
+	s := newServerWithAdmins(t)
+
+	// Create 10 active clients
+	conns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		conns[i] = connectPipeWithIP(s, fmt.Sprintf("10.0.0.%d:1000", i))
+		defer conns[i].Close()
+		onboard(conns[i], fmt.Sprintf("user%d", i))
+	}
+
+	// Queue 2 clients from identifiable IPs
+	q1 := connectPipeWithIP(s, "192.168.1.100:5000")
+	defer q1.Close()
+	readUntil(q1, "yes/no", 2*time.Second)
+	fmt.Fprintf(q1, "yes\n")
+
+	q2 := connectPipeWithIP(s, "192.168.1.200:5001")
+	defer q2.Close()
+	readUntil(q2, "#2 in the queue", 2*time.Second)
+	fmt.Fprintf(q2, "yes\n")
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Operator runs /list
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+	s.OperatorDispatch("/list")
+
+	output := buf.String()
+	if !strings.Contains(output, "Queued clients:") {
+		t.Errorf("operator /list should show queued clients section, got: %q", output)
+	}
+	if !strings.Contains(output, "192.168.1.100") {
+		t.Errorf("operator /list should show first queued IP, got: %q", output)
+	}
+	if !strings.Contains(output, "192.168.1.200") {
+		t.Errorf("operator /list should show second queued IP, got: %q", output)
+	}
+	if !strings.Contains(output, "#1") || !strings.Contains(output, "#2") {
+		t.Errorf("operator /list should show queue positions, got: %q", output)
+	}
+}

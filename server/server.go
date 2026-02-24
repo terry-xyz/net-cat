@@ -409,6 +409,35 @@ func (s *Server) GetQueueLength() int {
 	return len(s.queue)
 }
 
+// RemoveFromQueueByIP removes all queue entries whose IP matches the given
+// address and returns their clients. Position updates are sent to remaining
+// queue members. Used by the operator to kick/ban queued users by IP.
+func (s *Server) RemoveFromQueueByIP(ip string) []*client.Client {
+	host := extractHost(ip)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var removed []*client.Client
+	var remaining []*QueueEntry
+	for _, e := range s.queue {
+		if extractHost(e.client.IP) == host {
+			removed = append(removed, e.client)
+		} else {
+			remaining = append(remaining, e)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	s.queue = remaining
+
+	// Send position updates to remaining queue members
+	for i, e := range s.queue {
+		e.client.Send(fmt.Sprintf("You are now #%d in the queue.\n", i+1))
+	}
+	return removed
+}
+
 // IsShuttingDown reports whether the server is in the shutdown process.
 func (s *Server) IsShuttingDown() bool {
 	select {
@@ -765,6 +794,16 @@ func (s *Server) operatorCmdList() {
 	for n, cl := range s.clients {
 		entries = append(entries, entry{name: n, idle: time.Since(cl.GetLastActivity()).Truncate(time.Second)})
 	}
+
+	// Capture queued user IPs while holding the lock
+	type queueInfo struct {
+		pos int
+		ip  string
+	}
+	queueEntries := make([]queueInfo, 0, len(s.queue))
+	for i, e := range s.queue {
+		queueEntries = append(queueEntries, queueInfo{pos: i + 1, ip: extractHost(e.client.IP)})
+	}
 	s.mu.RUnlock()
 
 	for i := 1; i < len(entries); i++ {
@@ -780,6 +819,13 @@ func (s *Server) operatorCmdList() {
 	s.operatorSend("Connected clients:\n")
 	for _, e := range entries {
 		s.operatorSend(fmt.Sprintf("  %s (idle: %s)\n", e.name, e.idle.String()))
+	}
+
+	if len(queueEntries) > 0 {
+		s.operatorSend("Queued clients:\n")
+		for _, q := range queueEntries {
+			s.operatorSend(fmt.Sprintf("  #%d %s\n", q.pos, q.ip))
+		}
 	}
 }
 
@@ -798,7 +844,18 @@ func (s *Server) operatorCmdKick(args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		s.operatorSend("User '" + args + "' not found.\n")
+		// Fallback: treat args as IP and search queued users (operator can see IPs via /list)
+		removed := s.RemoveFromQueueByIP(args)
+		if len(removed) == 0 {
+			s.operatorSend("User '" + args + "' not found.\n")
+			return
+		}
+		for _, c := range removed {
+			c.Send("You have been kicked by Server.\n")
+			c.Close()
+		}
+		s.AddKickCooldown(args)
+		s.operatorSend(fmt.Sprintf("Queued user(s) from IP %s have been kicked.\n", extractHost(args)))
 		return
 	}
 
@@ -829,7 +886,18 @@ func (s *Server) operatorCmdBan(args string) {
 	}
 	target := s.GetClient(args)
 	if target == nil {
-		s.operatorSend("User '" + args + "' not found.\n")
+		// Fallback: treat args as IP and search queued users (operator can see IPs via /list)
+		removed := s.RemoveFromQueueByIP(args)
+		if len(removed) == 0 {
+			s.operatorSend("User '" + args + "' not found.\n")
+			return
+		}
+		for _, c := range removed {
+			c.Send("You have been banned by Server.\n")
+			c.Close()
+		}
+		s.AddBanIP(args)
+		s.operatorSend(fmt.Sprintf("Queued user(s) from IP %s have been banned.\n", extractHost(args)))
 		return
 	}
 
