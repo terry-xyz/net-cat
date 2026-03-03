@@ -55,6 +55,8 @@ func TestRecoveryE2EBasicThreeClients(t *testing.T) {
 	defer dave.Close()
 	readUntil(dave, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(dave, "dave\n")
+	readUntil(dave, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(dave, "\n")
 	historyText, err := readUntil(dave, "][dave]:", 5*time.Second)
 	if err != nil {
 		t.Fatalf("dave onboarding failed: %v", err)
@@ -110,6 +112,8 @@ func TestRecoveryE2EThreeRestarts(t *testing.T) {
 	defer verifier.Close()
 	readUntil(verifier, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(verifier, "verifier\n")
+	readUntil(verifier, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(verifier, "\n")
 	historyText, err := readUntil(verifier, "][verifier]:", 5*time.Second)
 	if err != nil {
 		t.Fatalf("verifier onboarding failed: %v", err)
@@ -215,6 +219,8 @@ func TestRecoveryE2EPartiallyCorruptedLogFile(t *testing.T) {
 	defer client.Close()
 	readUntil(client, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(client, "checker\n")
+	readUntil(client, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(client, "\n")
 	historyText, err := readUntil(client, "][checker]:", 5*time.Second)
 	if err != nil {
 		t.Fatalf("checker onboarding failed: %v", err)
@@ -336,6 +342,8 @@ func TestRecoveryE2EJoinLeaveAndAdminActions(t *testing.T) {
 	defer verifier.Close()
 	readUntil(verifier, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(verifier, "verifier\n")
+	readUntil(verifier, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(verifier, "\n")
 	historyText, err := readUntil(verifier, "][verifier]:", 5*time.Second)
 	if err != nil {
 		t.Fatalf("verifier onboarding failed: %v", err)
@@ -455,13 +463,16 @@ func TestRecoveryE2EAdminRestoredAfterRestart(t *testing.T) {
 	defer alice2.Close()
 	readUntil(alice2, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(alice2, "alice\n")
-	text, _ := readUntil(alice2, "][alice]:", 5*time.Second)
+	// Admin greeting comes before room selection
+	text, _ := readUntil(alice2, "[ENTER ROOM NAME]", 5*time.Second)
 	stripped := stripAnsi(text)
 
 	// Admin welcome-back greeting
 	if !strings.Contains(stripped, "Welcome back") || !strings.Contains(stripped, "admin") {
 		t.Errorf("alice should be greeted as returning admin, got: %q", stripped)
 	}
+	fmt.Fprintf(alice2, "\n")
+	readUntil(alice2, "][alice]:", 5*time.Second)
 
 	// Verify alice can use admin commands (kick)
 	target := tcpOnboard(t, addr2, "target")

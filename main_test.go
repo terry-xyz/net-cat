@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-func TestIsValidPort(t *testing.T) {
+func Test_isValidPort(t *testing.T) {
 	tests := []struct {
 		input string
 		want  bool
@@ -29,9 +29,9 @@ func TestIsValidPort(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.label, func(t *testing.T) {
-			got := IsValidPort(tt.input)
+			got := isValidPort(tt.input)
 			if got != tt.want {
-				t.Errorf("IsValidPort(%q) = %v, want %v", tt.input, got, tt.want)
+				t.Errorf("isValidPort(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}

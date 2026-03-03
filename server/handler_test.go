@@ -44,8 +44,13 @@ func readUntil(conn net.Conn, substr string, timeout time.Duration) (string, err
 	}
 }
 
-// helper: complete onboarding with the given name, returning all text received.
+// helper: complete onboarding with the given name (default room), returning all text received.
 func onboard(conn net.Conn, name string) (string, error) {
+	return onboardRoom(conn, name, "")
+}
+
+// helper: complete onboarding with name + room selection. Empty room = press Enter (default).
+func onboardRoom(conn net.Conn, name, room string) (string, error) {
 	// Read banner + name prompt
 	text, err := readUntil(conn, "[ENTER YOUR NAME]:", 2*time.Second)
 	if err != nil {
@@ -53,8 +58,26 @@ func onboard(conn net.Conn, name string) (string, error) {
 	}
 	// Send name
 	fmt.Fprintf(conn, "%s\n", name)
+	// Read until room prompt
+	text2, err := readUntil(conn, "[ENTER ROOM NAME]", 2*time.Second)
+	if err != nil {
+		return text + text2, err
+	}
+	// Send room choice (empty = default)
+	fmt.Fprintf(conn, "%s\n", room)
 	// Read until we get the first prompt (contains the username)
-	text2, err := readUntil(conn, "]["+name+"]:", 2*time.Second)
+	text3, err := readUntil(conn, "]["+name+"]:", 2*time.Second)
+	return text + text2 + text3, err
+}
+
+// helper: complete name entry but NOT room selection. Returns at room prompt.
+func enterName(conn net.Conn, name string) (string, error) {
+	text, err := readUntil(conn, "[ENTER YOUR NAME]:", 2*time.Second)
+	if err != nil {
+		return text, err
+	}
+	fmt.Fprintf(conn, "%s\n", name)
+	text2, err := readUntil(conn, "[ENTER ROOM NAME]", 2*time.Second)
 	return text + text2, err
 }
 
@@ -248,6 +271,9 @@ func TestOnboardingNoRetryLimit(t *testing.T) {
 		readUntil(conn, "[ENTER YOUR NAME]:", time.Second)
 	}
 	fmt.Fprintf(conn, "finalname\n")
+	// Handle room selection prompt
+	readUntil(conn, "[ENTER ROOM NAME]", 2*time.Second)
+	fmt.Fprintf(conn, "\n") // default room
 	_, err := readUntil(conn, "][finalname]:", 2*time.Second)
 	if err != nil {
 		t.Errorf("should succeed after 10 failures: %v", err)
@@ -313,6 +339,9 @@ func TestOnboardingCRLFStripped(t *testing.T) {
 
 	readUntil(conn, "[ENTER YOUR NAME]:", time.Second)
 	conn.Write([]byte("alice\r\n"))
+	// Handle room selection
+	readUntil(conn, "[ENTER ROOM NAME]", 2*time.Second)
+	fmt.Fprintf(conn, "\n")
 	_, err := readUntil(conn, "][alice]:", 2*time.Second)
 	if err != nil {
 		t.Errorf("name with \\r\\n should be accepted: %v", err)
@@ -861,9 +890,9 @@ func TestHelpAdmin(t *testing.T) {
 	}
 }
 
-// ==================== ValidateName unit tests ====================
+// ==================== validateName unit tests ====================
 
-func TestValidateName(t *testing.T) {
+func Test_validateName(t *testing.T) {
 	tests := []struct {
 		name    string
 		wantErr bool
@@ -884,9 +913,9 @@ func TestValidateName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.label, func(t *testing.T) {
-			err := ValidateName(tt.name)
+			err := validateName(tt.name)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateName(%q) error=%v, wantErr=%v", tt.name, err, tt.wantErr)
+				t.Errorf("validateName(%q) error=%v, wantErr=%v", tt.name, err, tt.wantErr)
 			}
 		})
 	}
@@ -949,82 +978,55 @@ func TestRegisterClientConcurrent(t *testing.T) {
 	}
 }
 
-// TestRegisterClientRejectsAtCapacity verifies that RegisterClient enforces
-// the MaxActiveClients limit under its write lock, preventing TOCTOU races
-// where two goroutines pass checkOrQueue simultaneously but only one can register.
-func TestRegisterClientRejectsAtCapacity(t *testing.T) {
+// TestRoomCapacityEnforced verifies that checkRoomCapacity returns false
+// when a room has MaxActiveClients members.
+func TestRoomCapacityEnforced(t *testing.T) {
 	s := New("0")
-	// Fill to max capacity
-	conns := make([]net.Conn, MaxActiveClients)
+	// Fill default room to max capacity
 	for i := 0; i < MaxActiveClients; i++ {
 		sConn, cConn := net.Pipe()
-		conns[i] = cConn
 		defer sConn.Close()
 		defer cConn.Close()
 		c := client.NewClient(sConn)
 		if err := s.RegisterClient(c, fmt.Sprintf("user%d", i)); err != nil {
 			t.Fatalf("registration %d failed: %v", i, err)
 		}
+		s.mu.Lock()
+		s.JoinRoom(c, s.DefaultRoom)
+		s.mu.Unlock()
 	}
-	// 11th should fail with errCapacityFull
-	sConn, cConn := net.Pipe()
-	defer sConn.Close()
-	defer cConn.Close()
-	c := client.NewClient(sConn)
-	err := s.RegisterClient(c, "overflow")
-	if err != errCapacityFull {
-		t.Errorf("expected errCapacityFull, got %v", err)
+	if s.checkRoomCapacity(s.DefaultRoom) {
+		t.Error("expected room to be at capacity")
 	}
-	if s.GetClientCount() != MaxActiveClients {
-		t.Errorf("expected %d clients, got %d", MaxActiveClients, s.GetClientCount())
+	// A different room should still have capacity
+	if !s.checkRoomCapacity("dev") {
+		t.Error("different room should have capacity")
 	}
 }
 
-// TestRegisterClientConcurrentCapacity verifies that when many goroutines race
-// to claim the last slot, exactly one succeeds and the rest get errCapacityFull.
-// This is the core test for the TOCTOU fix in RegisterClient (spec 03).
-func TestRegisterClientConcurrentCapacity(t *testing.T) {
+// TestRegisterClientConcurrentUniqueness verifies that when many goroutines race
+// to register the same name, exactly one succeeds.
+func TestRegisterClientConcurrentUniqueness(t *testing.T) {
 	s := New("0")
-	// Fill to 9
-	for i := 0; i < MaxActiveClients-1; i++ {
-		sConn, cConn := net.Pipe()
-		defer sConn.Close()
-		defer cConn.Close()
-		c := client.NewClient(sConn)
-		if err := s.RegisterClient(c, fmt.Sprintf("user%d", i)); err != nil {
-			t.Fatalf("registration %d failed: %v", i, err)
-		}
-	}
-	// 20 goroutines race to register the 10th client
 	const racers = 20
 	results := make(chan error, racers)
 	for i := 0; i < racers; i++ {
-		go func(idx int) {
+		go func() {
 			sConn, cConn := net.Pipe()
 			defer sConn.Close()
 			defer cConn.Close()
 			c := client.NewClient(sConn)
-			results <- s.RegisterClient(c, fmt.Sprintf("racer%d", idx))
-		}(i)
+			results <- s.RegisterClient(c, "samename")
+		}()
 	}
 	successes := 0
-	capFull := 0
 	for i := 0; i < racers; i++ {
-		err := <-results
-		if err == nil {
+		if <-results == nil {
 			successes++
-		} else if err == errCapacityFull {
-			capFull++
 		}
 	}
 	if successes != 1 {
 		t.Errorf("expected exactly 1 success, got %d", successes)
-	}
-	if capFull != racers-1 {
-		t.Errorf("expected %d capacity-full rejections, got %d", racers-1, capFull)
-	}
-	if s.GetClientCount() != MaxActiveClients {
-		t.Errorf("expected %d clients, got %d", MaxActiveClients, s.GetClientCount())
 	}
 }
 
@@ -2042,9 +2044,9 @@ func TestTenClientsCanChat(t *testing.T) {
 	}
 }
 
-func TestEleventhClientDoesNotReceiveBanner(t *testing.T) {
+func TestEleventhClientQueuedAfterRoomSelection(t *testing.T) {
 	s := New("0")
-	// Fill up to 10 active clients
+	// Fill default room to 10 active clients
 	conns := make([]net.Conn, 10)
 	for i := 0; i < 10; i++ {
 		conns[i] = connectPipe(s)
@@ -2052,22 +2054,19 @@ func TestEleventhClientDoesNotReceiveBanner(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// 11th client connects
+	// 11th client enters name, then selects the full room
 	c11 := connectPipe(s)
 	defer c11.Close()
+	enterName(c11, "queued11")
+	// Select the default (full) room
+	fmt.Fprintf(c11, "\n")
 
-	text, err := readUntil(c11, "queue", 2*time.Second)
+	text, err := readUntil(c11, "yes/no", 2*time.Second)
 	if err != nil {
 		t.Fatalf("11th client should receive queue message: %v", err)
 	}
-	if strings.Contains(text, "Welcome to TCP-Chat!") {
-		t.Error("11th client should NOT receive the welcome banner")
-	}
-	if strings.Contains(text, "[ENTER YOUR NAME]:") {
-		t.Error("11th client should NOT receive the name prompt")
-	}
-	if !strings.Contains(text, "Chat is full") {
-		t.Error("11th client should see 'Chat is full'")
+	if !strings.Contains(text, "is full") {
+		t.Error("11th client should see room is full")
 	}
 	if !strings.Contains(text, "#1 in the queue") {
 		t.Errorf("11th client should be #1 in queue, got: %q", text)
@@ -2085,10 +2084,11 @@ func TestQueueChooseNo(t *testing.T) {
 
 	c11 := connectPipe(s)
 	defer c11.Close()
+	enterName(c11, "queued11")
+	fmt.Fprintf(c11, "\n") // select full default room
 	readUntil(c11, "yes/no", 2*time.Second)
 	fmt.Fprintf(c11, "no\n")
 
-	// Connection should be closed by server
 	time.Sleep(200 * time.Millisecond)
 	if s.GetQueueLength() != 0 {
 		t.Error("queue should be empty after 'no'")
@@ -2104,9 +2104,11 @@ func TestQueueChooseYesAdmittedOnSlotOpen(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// 11th client queues
+	// 11th client enters name, selects full room, queues
 	c11 := connectPipe(s)
 	defer c11.Close()
+	enterName(c11, "admitted")
+	fmt.Fprintf(c11, "\n")
 	readUntil(c11, "yes/no", 2*time.Second)
 	fmt.Fprintf(c11, "yes\n")
 	time.Sleep(100 * time.Millisecond)
@@ -2118,18 +2120,8 @@ func TestQueueChooseYesAdmittedOnSlotOpen(t *testing.T) {
 	// Disconnect one active client to open a slot
 	conns[0].Close()
 
-	// 11th client should now receive the welcome banner
-	text, err := readUntil(c11, "[ENTER YOUR NAME]:", 3*time.Second)
-	if err != nil {
-		t.Fatalf("queued client should receive banner after slot opens: %v", err)
-	}
-	if !strings.Contains(text, "Welcome to TCP-Chat!") {
-		t.Error("queued client should receive the full welcome banner")
-	}
-
-	// Complete onboarding
-	fmt.Fprintf(c11, "admitted\n")
-	_, err = readUntil(c11, "][admitted]:", 2*time.Second)
+	// 11th client should now be admitted and get the prompt
+	_, err := readUntil(c11, "][admitted]:", 3*time.Second)
 	if err != nil {
 		t.Fatalf("admitted client should complete onboarding: %v", err)
 	}
@@ -2151,16 +2143,22 @@ func TestQueuePositionUpdatesOnQueueChange(t *testing.T) {
 	// Queue 3 clients
 	q1 := connectPipe(s)
 	defer q1.Close()
+	enterName(q1, "q1user")
+	fmt.Fprintf(q1, "\n")
 	readUntil(q1, "yes/no", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 
 	q2 := connectPipe(s)
 	defer q2.Close()
+	enterName(q2, "q2user")
+	fmt.Fprintf(q2, "\n")
 	readUntil(q2, "#2 in the queue", 2*time.Second)
 	fmt.Fprintf(q2, "yes\n")
 
 	q3 := connectPipe(s)
 	defer q3.Close()
+	enterName(q3, "q3user")
+	fmt.Fprintf(q3, "\n")
 	readUntil(q3, "#3 in the queue", 2*time.Second)
 	fmt.Fprintf(q3, "yes\n")
 
@@ -2169,8 +2167,8 @@ func TestQueuePositionUpdatesOnQueueChange(t *testing.T) {
 	// Disconnect one active client — q1 is admitted, q2 and q3 get position updates
 	conns[0].Close()
 
-	// q1 should get the banner
-	readUntil(q1, "[ENTER YOUR NAME]:", 3*time.Second)
+	// q1 should be admitted (receives prompt)
+	readUntil(q1, "][q1user]:", 3*time.Second)
 
 	// q2 should now be #1
 	text, err := readUntil(q2, "#1 in the queue", 2*time.Second)
@@ -2185,10 +2183,10 @@ func TestQueuePositionUpdatesOnQueueChange(t *testing.T) {
 }
 
 func TestNamePromptDoesNotCountAgainstLimit(t *testing.T) {
-	// 9 active clients + 5 at name prompt: 10th active connection is allowed without queue offer
+	// Capacity is per-room. Clients at name prompt don't count.
 	s := New("0")
 
-	// Create 9 active clients
+	// Create 9 active clients in default room
 	conns := make([]net.Conn, 9)
 	for i := 0; i < 9; i++ {
 		conns[i] = connectPipe(s)
@@ -2196,7 +2194,7 @@ func TestNamePromptDoesNotCountAgainstLimit(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// Create 5 clients at name prompt (they read banner but don't send a name)
+	// Create 5 clients at name prompt (not yet in any room)
 	namePromptConns := make([]net.Conn, 5)
 	for i := 0; i < 5; i++ {
 		namePromptConns[i] = connectPipe(s)
@@ -2204,33 +2202,18 @@ func TestNamePromptDoesNotCountAgainstLimit(t *testing.T) {
 		readUntil(namePromptConns[i], "[ENTER YOUR NAME]:", 2*time.Second)
 	}
 
-	// 10th active connection should NOT be queued
+	// 10th active client should join without queue
 	c10 := connectPipe(s)
 	defer c10.Close()
-	text, err := readUntil(c10, "[ENTER YOUR NAME]:", 2*time.Second)
+	_, err := onboard(c10, "user9")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(text, "Chat is full") {
-		t.Error("10th active connection should NOT be queued when name-prompt clients don't count")
-	}
-	if !strings.Contains(text, "Welcome to TCP-Chat!") {
-		t.Error("10th active connection should receive the banner")
+		t.Fatalf("10th active client should not be queued: %v", err)
 	}
 }
 
-func TestTenActiveAndNamePromptNewClientQueued(t *testing.T) {
-	// 10 active + 3 at name prompt + new connector: new connector gets queue offer
-	// Name-prompt clients must connect BEFORE the server is full so they aren't queued.
+func TestTenActiveAndRoomFullNewClientQueued(t *testing.T) {
+	// 10 active in default room + new client selects same room: gets queue offer
 	s := New("0")
-
-	// 3 clients at name prompt (connect when active=0, so they bypass queue check)
-	namePromptConns := make([]net.Conn, 3)
-	for i := 0; i < 3; i++ {
-		namePromptConns[i] = connectPipe(s)
-		defer namePromptConns[i].Close()
-		readUntil(namePromptConns[i], "[ENTER YOUR NAME]:", 2*time.Second)
-	}
 
 	// 10 active clients
 	conns := make([]net.Conn, 10)
@@ -2240,15 +2223,17 @@ func TestTenActiveAndNamePromptNewClientQueued(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// New connector should get queue offer (10 active >= limit)
+	// New client enters name and selects the full room
 	c14 := connectPipe(s)
 	defer c14.Close()
+	enterName(c14, "newuser")
+	fmt.Fprintf(c14, "\n")
 	text, err := readUntil(c14, "queue", 2*time.Second)
 	if err != nil {
 		t.Fatalf("new client should receive queue offer: %v", err)
 	}
-	if !strings.Contains(text, "Chat is full") {
-		t.Error("new client should see queue offer with 10 active clients")
+	if !strings.Contains(text, "is full") {
+		t.Error("new client should see room full message")
 	}
 }
 
@@ -2261,14 +2246,17 @@ func TestQueuedClientDisconnectSilentlyRemoved(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// Queue two clients
 	q1 := connectPipe(s)
+	enterName(q1, "q1user")
+	fmt.Fprintf(q1, "\n")
 	readUntil(q1, "yes/no", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 	time.Sleep(100 * time.Millisecond)
 
 	q2 := connectPipe(s)
 	defer q2.Close()
+	enterName(q2, "q2user")
+	fmt.Fprintf(q2, "\n")
 	readUntil(q2, "#2 in the queue", 2*time.Second)
 	fmt.Fprintf(q2, "yes\n")
 	time.Sleep(100 * time.Millisecond)
@@ -2277,11 +2265,9 @@ func TestQueuedClientDisconnectSilentlyRemoved(t *testing.T) {
 		t.Errorf("expected 2 in queue, got %d", s.GetQueueLength())
 	}
 
-	// q1 disconnects
 	q1.Close()
 	time.Sleep(300 * time.Millisecond)
 
-	// q2 should get position update to #1
 	text, _ := readUntil(q2, "#1 in the queue", 2*time.Second)
 	if !strings.Contains(text, "#1 in the queue") {
 		t.Errorf("q2 should be updated to #1, got: %q", text)
@@ -2289,7 +2275,6 @@ func TestQueuedClientDisconnectSilentlyRemoved(t *testing.T) {
 }
 
 func TestQueueFIFOAdmission(t *testing.T) {
-	// Multiple slots open: queue admits in FIFO order
 	s := New("0")
 	conns := make([]net.Conn, 10)
 	for i := 0; i < 10; i++ {
@@ -2298,35 +2283,32 @@ func TestQueueFIFOAdmission(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// Queue 2 clients
 	q1 := connectPipe(s)
 	defer q1.Close()
+	enterName(q1, "first_admitted")
+	fmt.Fprintf(q1, "\n")
 	readUntil(q1, "yes/no", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 
 	q2 := connectPipe(s)
 	defer q2.Close()
+	enterName(q2, "second_admitted")
+	fmt.Fprintf(q2, "\n")
 	readUntil(q2, "#2 in the queue", 2*time.Second)
 	fmt.Fprintf(q2, "yes\n")
 
 	time.Sleep(100 * time.Millisecond)
 
-	// Disconnect first active client
+	// Disconnect first active client — q1 admitted
 	conns[0].Close()
-
-	// q1 (first in queue) should be admitted first
-	_, err := readUntil(q1, "[ENTER YOUR NAME]:", 3*time.Second)
+	_, err := readUntil(q1, "][first_admitted]:", 3*time.Second)
 	if err != nil {
 		t.Fatalf("q1 should be admitted first (FIFO): %v", err)
 	}
 
-	// q1 completes onboarding to open possibility for q2
-	fmt.Fprintf(q1, "first_admitted\n")
-	readUntil(q1, "][first_admitted]:", 2*time.Second)
-
-	// Disconnect another active client to admit q2
+	// Disconnect another active client — q2 admitted
 	conns[1].Close()
-	_, err = readUntil(q2, "[ENTER YOUR NAME]:", 3*time.Second)
+	_, err = readUntil(q2, "][second_admitted]:", 3*time.Second)
 	if err != nil {
 		t.Fatalf("q2 should be admitted second (FIFO): %v", err)
 	}
@@ -2343,9 +2325,10 @@ func TestQueueInvalidInput(t *testing.T) {
 
 	c11 := connectPipe(s)
 	defer c11.Close()
+	enterName(c11, "queued11")
+	fmt.Fprintf(c11, "\n")
 	readUntil(c11, "yes/no", 2*time.Second)
 
-	// Invalid input
 	fmt.Fprintf(c11, "maybe\n")
 	text, err := readUntil(c11, "yes' or 'no'", 2*time.Second)
 	if err != nil {
@@ -2355,7 +2338,6 @@ func TestQueueInvalidInput(t *testing.T) {
 		t.Errorf("invalid input should get error, got: %q", text)
 	}
 
-	// Still able to respond correctly
 	fmt.Fprintf(c11, "no\n")
 	time.Sleep(200 * time.Millisecond)
 	if s.GetQueueLength() != 0 {
@@ -2364,7 +2346,6 @@ func TestQueueInvalidInput(t *testing.T) {
 }
 
 func TestAllActiveLeaveThenQueueAdmits(t *testing.T) {
-	// All 10 active clients leave while a queue exists: queued clients are admitted one at a time
 	s := New("0")
 	conns := make([]net.Conn, 10)
 	for i := 0; i < 10; i++ {
@@ -2373,26 +2354,28 @@ func TestAllActiveLeaveThenQueueAdmits(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// Queue 2 clients
 	q1 := connectPipe(s)
 	defer q1.Close()
+	enterName(q1, "q1user")
+	fmt.Fprintf(q1, "\n")
 	readUntil(q1, "yes/no", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 
 	q2 := connectPipe(s)
 	defer q2.Close()
+	enterName(q2, "q2user")
+	fmt.Fprintf(q2, "\n")
 	readUntil(q2, "#2 in the queue", 2*time.Second)
 	fmt.Fprintf(q2, "yes\n")
 
 	time.Sleep(100 * time.Millisecond)
 
-	// All active clients disconnect
 	for i := 0; i < 10; i++ {
 		conns[i].Close()
 	}
 
 	// First queued client should be admitted
-	_, err := readUntil(q1, "[ENTER YOUR NAME]:", 3*time.Second)
+	_, err := readUntil(q1, "][q1user]:", 3*time.Second)
 	if err != nil {
 		t.Fatalf("first queued client should be admitted: %v", err)
 	}
@@ -2410,12 +2393,12 @@ func TestShutdownNotifiesQueuedClients(t *testing.T) {
 
 	q1 := connectPipe(s)
 	defer q1.Close()
+	enterName(q1, "q1user")
+	fmt.Fprintf(q1, "\n")
 	readUntil(q1, "yes/no", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 	time.Sleep(100 * time.Millisecond)
 
-	// Run Shutdown concurrently so we can read the goodbye message
-	// (net.Pipe writes block until the corresponding read occurs)
 	go s.Shutdown()
 
 	text, err := readUntil(q1, "shutting down", 2*time.Second)
@@ -3648,8 +3631,8 @@ func TestOperatorListFromTerminal(t *testing.T) {
 	if !strings.Contains(buf.String(), "alice") {
 		t.Errorf("operator /list should show clients, got: %q", buf.String())
 	}
-	if !strings.Contains(buf.String(), "Connected clients:") {
-		t.Errorf("operator /list should have header, got: %q", buf.String())
+	if !strings.Contains(buf.String(), "Room general") {
+		t.Errorf("operator /list should have room header, got: %q", buf.String())
 	}
 }
 
@@ -4500,8 +4483,8 @@ func TestMutedClientCommandsWork(t *testing.T) {
 
 	// /list should work
 	fmt.Fprintf(c2, "/list\n")
-	text, _ := readUntil(c2, "Connected clients", time.Second)
-	if !strings.Contains(text, "Connected clients") {
+	text, _ := readUntil(c2, "connected clients", time.Second)
+	if !strings.Contains(text, "connected clients") {
 		t.Errorf("muted user should be able to use /list, got: %q", text)
 	}
 
@@ -5766,7 +5749,7 @@ func TestHeartbeatStopsDuringShutdown(t *testing.T) {
 
 func TestHeartbeatTimeoutOpensQueueSlot(t *testing.T) {
 	// Spec 11 + Spec 03: when heartbeat removes an unresponsive client,
-	// a queued client should be admitted (admitFromQueue triggered).
+	// a queued client should be admitted (admitFromRoomQueue triggered).
 	s := newHeartbeatServer(t)
 
 	// Fill 10 active slots. Each client needs a goroutine draining its pipe
@@ -5805,9 +5788,11 @@ func TestHeartbeatTimeoutOpensQueueSlot(t *testing.T) {
 	// Wait for all joins to propagate
 	time.Sleep(200 * time.Millisecond)
 
-	// Queue an 11th client
+	// Queue an 11th client (in new flow: banner → name → room → queue)
 	q := connectPipe(s)
 	defer q.Close()
+	enterName(q, "queued1")
+	fmt.Fprintf(q, "\n") // default room
 	readUntil(q, "yes/no", 2*time.Second)
 	fmt.Fprintf(q, "yes\n")
 	time.Sleep(100 * time.Millisecond)
@@ -5820,13 +5805,10 @@ func TestHeartbeatTimeoutOpensQueueSlot(t *testing.T) {
 	// causing user0 to be disconnected and freeing a slot for the queued client.
 	close(stopDrain[0])
 
-	// The queued client should now be admitted and receive the welcome banner
-	text, err := readUntil(q, "[ENTER YOUR NAME]:", 3*time.Second)
+	// The queued client should now be admitted and receive the prompt (already named)
+	_, err := readUntil(q, "][queued1]:", 3*time.Second)
 	if err != nil {
-		t.Fatalf("queued client should be admitted after heartbeat removal: %v (got: %q)", err, text)
-	}
-	if !strings.Contains(text, "Welcome to TCP-Chat!") {
-		t.Error("queued client should receive the full welcome banner")
+		t.Fatalf("queued client should be admitted after heartbeat removal: %v", err)
 	}
 }
 
@@ -6140,12 +6122,18 @@ func onboardAndDrain(conn net.Conn, name string) (string, error) {
 		return text, err
 	}
 	fmt.Fprintf(conn, "%s\n", name)
-	text2, err := readUntil(conn, "]["+name+"]:", 2*time.Second)
-	return text + text2, err
+	// Handle room selection prompt (press Enter for default room)
+	text2, err := readUntil(conn, "[ENTER ROOM NAME]", 2*time.Second)
+	if err != nil {
+		return text + text2, err
+	}
+	fmt.Fprintf(conn, "\n")
+	text3, err := readUntil(conn, "]["+name+"]:", 2*time.Second)
+	return text + text2 + text3, err
 }
 
 // helper: send a line character by character (simulates raw terminal input).
-// Each character is a separate Write, mimicking real telnet/netcat raw mode.
+// Each character is a separate Write, mimicking real netcat raw mode.
 func sendCharByChar(conn net.Conn, line string) {
 	for _, b := range []byte(line) {
 		conn.Write([]byte{b})
@@ -6188,12 +6176,8 @@ func TestInputContinuityPartialInputPreserved(t *testing.T) {
 
 	// Alice types "hel" character by character
 	sendCharByChar(c1, "hel")
-	// Drain the echoes
+	// Allow writeLoop to process echo tracking
 	time.Sleep(50 * time.Millisecond)
-	echoText := readAvailable(c1, 200*time.Millisecond)
-	if !strings.Contains(echoText, "hel") {
-		t.Fatalf("expected echo of 'hel', got: %q", echoText)
-	}
 
 	// Bob sends a message — this triggers a broadcast to alice
 	fmt.Fprintf(c2, "world\n")
@@ -6772,14 +6756,18 @@ func TestEdgeCaseQueueAdmissionDuringLeave(t *testing.T) {
 		}
 	}
 
-	// Queue 2 clients
+	// Queue 2 clients (new flow: banner → name → room → queue)
 	q1 := connectPipe(s)
 	defer q1.Close()
+	enterName(q1, "queued1")
+	fmt.Fprintf(q1, "\n") // default room
 	readUntil(q1, "Would you like to wait?", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 
 	q2 := connectPipe(s)
 	defer q2.Close()
+	enterName(q2, "queued2")
+	fmt.Fprintf(q2, "\n") // default room
 	readUntil(q2, "Would you like to wait?", 2*time.Second)
 	fmt.Fprintf(q2, "yes\n")
 
@@ -6801,8 +6789,8 @@ func TestEdgeCaseQueueAdmissionDuringLeave(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Both queued clients should be admitted (one for each departed active)
-	_, err1 := readUntil(q1, "[ENTER YOUR NAME]:", 2*time.Second)
-	_, err2 := readUntil(q2, "[ENTER YOUR NAME]:", 2*time.Second)
+	_, err1 := readUntil(q1, "][queued1]:", 2*time.Second)
+	_, err2 := readUntil(q2, "][queued2]:", 2*time.Second)
 	if err1 != nil && err2 != nil {
 		t.Error("at least one queued client should have been admitted")
 	}
@@ -6883,9 +6871,11 @@ func TestEdgeCaseKickAndQueueAdmissionSimultaneous(t *testing.T) {
 	s.OperatorDispatch("/promote user0")
 	readUntil(actives[0], "admin", time.Second)
 
-	// Queue one client
+	// Queue one client (new flow: banner → name → room → queue)
 	queued := connectPipe(s)
 	defer queued.Close()
+	enterName(queued, "queued1")
+	fmt.Fprintf(queued, "\n") // default room
 	readUntil(queued, "Would you like to wait?", 2*time.Second)
 	fmt.Fprintf(queued, "yes\n")
 	time.Sleep(200 * time.Millisecond)
@@ -6894,8 +6884,8 @@ func TestEdgeCaseKickAndQueueAdmissionSimultaneous(t *testing.T) {
 	fmt.Fprintf(actives[0], "/kick user9\n")
 	time.Sleep(500 * time.Millisecond)
 
-	// Queued client should be admitted
-	_, err := readUntil(queued, "[ENTER YOUR NAME]:", 2*time.Second)
+	// Queued client should be admitted (already named, gets prompt directly)
+	_, err := readUntil(queued, "][queued1]:", 2*time.Second)
 	if err != nil {
 		t.Error("queued client should be admitted after kick opens a slot")
 	}
@@ -7352,10 +7342,12 @@ func TestOperatorKickQueuedUserByIP(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// 11th client from a distinct IP enters the queue
+	// 11th client from a distinct IP enters the queue (new flow: name → room → queue)
 	queuedIP := "10.0.1.1:2000"
 	q := connectPipeWithIP(s, queuedIP)
 	defer q.Close()
+	enterName(q, "queued1")
+	fmt.Fprintf(q, "\n") // default room
 	readUntil(q, "yes/no", 2*time.Second)
 	fmt.Fprintf(q, "yes\n")
 	time.Sleep(100 * time.Millisecond)
@@ -7405,10 +7397,12 @@ func TestOperatorBanQueuedUserByIP(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// 11th client from a distinct IP enters the queue
+	// 11th client from a distinct IP enters the queue (new flow: name → room → queue)
 	queuedIP := "10.0.2.1:3000"
 	q := connectPipeWithIP(s, queuedIP)
 	defer q.Close()
+	enterName(q, "queued1")
+	fmt.Fprintf(q, "\n") // default room
 	readUntil(q, "yes/no", 2*time.Second)
 	fmt.Fprintf(q, "yes\n")
 	time.Sleep(100 * time.Millisecond)
@@ -7458,19 +7452,25 @@ func TestOperatorKickQueuedPositionUpdates(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// Queue 3 clients from different IPs
+	// Queue 3 clients from different IPs (new flow: name → room → queue)
 	q1 := connectPipeWithIP(s, "10.1.0.1:2001")
 	defer q1.Close()
+	enterName(q1, "q1")
+	fmt.Fprintf(q1, "\n") // default room
 	readUntil(q1, "yes/no", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 
 	q2 := connectPipeWithIP(s, "10.1.0.2:2002")
 	defer q2.Close()
+	enterName(q2, "q2")
+	fmt.Fprintf(q2, "\n") // default room
 	readUntil(q2, "#2 in the queue", 2*time.Second)
 	fmt.Fprintf(q2, "yes\n")
 
 	q3 := connectPipeWithIP(s, "10.1.0.3:2003")
 	defer q3.Close()
+	enterName(q3, "q3")
+	fmt.Fprintf(q3, "\n") // default room
 	readUntil(q3, "#3 in the queue", 2*time.Second)
 	fmt.Fprintf(q3, "yes\n")
 
@@ -7519,9 +7519,11 @@ func TestAdminKickQueuedUserNotFound(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// Queue an 11th client
+	// Queue an 11th client (new flow: name → room → queue)
 	q := connectPipeWithIP(s, "10.1.0.1:2000")
 	defer q.Close()
+	enterName(q, "queued1")
+	fmt.Fprintf(q, "\n") // default room
 	readUntil(q, "yes/no", 2*time.Second)
 	fmt.Fprintf(q, "yes\n")
 	time.Sleep(100 * time.Millisecond)
@@ -7553,14 +7555,18 @@ func TestOperatorListShowsQueuedClients(t *testing.T) {
 		onboard(conns[i], fmt.Sprintf("user%d", i))
 	}
 
-	// Queue 2 clients from identifiable IPs
+	// Queue 2 clients from identifiable IPs (new flow: name → room → queue)
 	q1 := connectPipeWithIP(s, "192.168.1.100:5000")
 	defer q1.Close()
+	enterName(q1, "q1")
+	fmt.Fprintf(q1, "\n") // default room
 	readUntil(q1, "yes/no", 2*time.Second)
 	fmt.Fprintf(q1, "yes\n")
 
 	q2 := connectPipeWithIP(s, "192.168.1.200:5001")
 	defer q2.Close()
+	enterName(q2, "q2")
+	fmt.Fprintf(q2, "\n") // default room
 	readUntil(q2, "#2 in the queue", 2*time.Second)
 	fmt.Fprintf(q2, "yes\n")
 
@@ -7572,9 +7578,7 @@ func TestOperatorListShowsQueuedClients(t *testing.T) {
 	s.OperatorDispatch("/list")
 
 	output := buf.String()
-	if !strings.Contains(output, "Queued clients:") {
-		t.Errorf("operator /list should show queued clients section, got: %q", output)
-	}
+	// In new format, queued clients show in the room section
 	if !strings.Contains(output, "192.168.1.100") {
 		t.Errorf("operator /list should show first queued IP, got: %q", output)
 	}
@@ -7643,5 +7647,606 @@ func TestLoadAdminsCorruptJSON(t *testing.T) {
 	// Server should have no admins
 	if s2.IsKnownAdmin("alice") || s2.IsKnownAdmin("bob") {
 		t.Error("corrupt admins.json should result in no saved admins")
+	}
+}
+
+// ==================== Multi-Room Tests ====================
+
+func TestRoomSelectionDefault(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboard(conn, "alice")
+
+	cl := s.GetClient("alice")
+	if cl == nil {
+		t.Fatal("alice should be registered")
+	}
+	if cl.Room != s.DefaultRoom {
+		t.Errorf("expected room %q, got %q", s.DefaultRoom, cl.Room)
+	}
+}
+
+func TestRoomSelectionCustom(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+	onboardRoom(conn, "alice", "dev")
+
+	cl := s.GetClient("alice")
+	if cl == nil {
+		t.Fatal("alice should be registered")
+	}
+	if cl.Room != "dev" {
+		t.Errorf("expected room %q, got %q", "dev", cl.Room)
+	}
+}
+
+func TestRoomSelectionInvalidName(t *testing.T) {
+	s := New("0")
+	conn := connectPipe(s)
+	defer conn.Close()
+
+	// Read banner + name prompt
+	readUntil(conn, "[ENTER YOUR NAME]:", 2*time.Second)
+	fmt.Fprintf(conn, "alice\n")
+	readUntil(conn, "[ENTER ROOM NAME]", 2*time.Second)
+
+	// Send invalid room name (too long)
+	longName := strings.Repeat("x", 33)
+	fmt.Fprintf(conn, "%s\n", longName)
+	text, _ := readUntil(conn, "[ENTER ROOM NAME]", 2*time.Second)
+	if !strings.Contains(text, "too long") {
+		t.Errorf("expected error for long room name, got: %q", text)
+	}
+
+	// Send valid room name now
+	fmt.Fprintf(conn, "valid\n")
+	_, err := readUntil(conn, "][alice]:", 2*time.Second)
+	if err != nil {
+		t.Fatalf("should be able to join with valid name: %v", err)
+	}
+	if s.GetClient("alice").Room != "valid" {
+		t.Error("alice should be in room 'valid'")
+	}
+}
+
+func TestRoomIsolationMessages(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")                // general
+	onboardRoom(c2, "bob", "dev") // dev
+
+	// Alice sends a message — bob should NOT see it
+	fmt.Fprintf(c1, "hello from general\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	// Bob should not receive alice's message
+	text := drainFor(c2, 500*time.Millisecond)
+	if strings.Contains(text, "hello from general") {
+		t.Error("bob in 'dev' should NOT see alice's message in 'general'")
+	}
+
+	// Bob sends a message — alice should NOT see it
+	fmt.Fprintf(c2, "hello from dev\n")
+	readUntil(c2, "][bob]:", time.Second)
+
+	text = drainFor(c1, 500*time.Millisecond)
+	if strings.Contains(text, "hello from dev") {
+		t.Error("alice in 'general' should NOT see bob's message in 'dev'")
+	}
+}
+
+func TestRoomIsolationJoinLeave(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+
+	onboard(c1, "alice") // general
+
+	// Bob joins "dev" — alice should NOT see the join notification
+	c2 := connectPipe(s)
+	defer c2.Close()
+	onboardRoom(c2, "bob", "dev")
+
+	text := drainFor(c1, 500*time.Millisecond)
+	if strings.Contains(text, "bob has joined") {
+		t.Error("alice should NOT see bob's join in a different room")
+	}
+
+	// Bob leaves — alice should NOT see the leave
+	c2.Close()
+	time.Sleep(200 * time.Millisecond)
+
+	text = drainFor(c1, 500*time.Millisecond)
+	if strings.Contains(text, "bob has left") {
+		t.Error("alice should NOT see bob's leave from a different room")
+	}
+}
+
+func TestSwitchRoomBasic(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "alice")                // general
+	onboard(c2, "bob")                  // general
+	onboardRoom(c3, "carol", "dev") // dev
+
+	readUntil(c1, "bob has joined", time.Second)
+
+	// Alice switches to "dev"
+	fmt.Fprintf(c1, "/switch dev\n")
+	readUntil(c1, "Switched to room 'dev'", 2*time.Second)
+
+	// Bob should see alice leaving
+	text, _ := readUntil(c2, "alice has left", 2*time.Second)
+	if !strings.Contains(text, "alice has left") {
+		t.Errorf("bob should see alice leaving general, got: %q", text)
+	}
+
+	// Carol should see alice joining dev
+	text, _ = readUntil(c3, "alice has joined", 2*time.Second)
+	if !strings.Contains(text, "alice has joined") {
+		t.Errorf("carol should see alice joining dev, got: %q", text)
+	}
+
+	// Alice sends message in dev — only carol sees it
+	fmt.Fprintf(c1, "hello dev\n")
+	readUntil(c1, "][alice]:", time.Second)
+	text, _ = readUntil(c3, "hello dev", time.Second)
+	if !strings.Contains(text, "hello dev") {
+		t.Error("carol should see alice's message in dev")
+	}
+
+	// Bob should NOT see it
+	text = drainFor(c2, 500*time.Millisecond)
+	if strings.Contains(text, "hello dev") {
+		t.Error("bob should NOT see alice's message after she switched rooms")
+	}
+}
+
+func TestSwitchRoomFull(t *testing.T) {
+	s := New("0")
+	// Fill "dev" room with 10 clients
+	devConns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		devConns[i] = connectPipe(s)
+		defer devConns[i].Close()
+		onboardRoom(devConns[i], fmt.Sprintf("dev%d", i), "dev")
+	}
+
+	// Client in general tries to switch to full "dev"
+	c := connectPipe(s)
+	defer c.Close()
+	onboard(c, "alice")
+
+	fmt.Fprintf(c, "/switch dev\n")
+	text, _ := readUntil(c, "][alice]:", 2*time.Second)
+	if !strings.Contains(text, "full") {
+		t.Errorf("should get 'full' error when switching to full room, got: %q", text)
+	}
+
+	// Alice should still be in general
+	if s.GetClient("alice").Room != s.DefaultRoom {
+		t.Error("alice should remain in general after failed switch")
+	}
+}
+
+func TestSwitchRoomSameRoom(t *testing.T) {
+	s := New("0")
+	c := connectPipe(s)
+	defer c.Close()
+	onboard(c, "alice")
+
+	fmt.Fprintf(c, "/switch general\n")
+	text, _ := readUntil(c, "][alice]:", 2*time.Second)
+	if !strings.Contains(text, "already in") {
+		t.Errorf("should get 'already in' error, got: %q", text)
+	}
+}
+
+func TestCreateRoomBasic(t *testing.T) {
+	s := New("0")
+	c := connectPipe(s)
+	defer c.Close()
+	onboard(c, "alice")
+
+	fmt.Fprintf(c, "/create newroom\n")
+	text, _ := readUntil(c, "Switched to room 'newroom'", 2*time.Second)
+	if !strings.Contains(text, "Switched to room 'newroom'") {
+		t.Errorf("should switch to new room, got: %q", text)
+	}
+
+	if s.GetClient("alice").Room != "newroom" {
+		t.Error("alice should be in 'newroom'")
+	}
+}
+
+func TestCreateRoomAlreadyExists(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboardRoom(c1, "alice", "dev")
+	onboard(c2, "bob")
+
+	fmt.Fprintf(c2, "/create dev\n")
+	text, _ := readUntil(c2, "][bob]:", 2*time.Second)
+	if !strings.Contains(text, "already exists") {
+		t.Errorf("should get 'already exists' error, got: %q", text)
+	}
+	if !strings.Contains(text, "/switch") {
+		t.Error("error should suggest using /switch")
+	}
+}
+
+func TestRoomsCommandListsAll(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")                // general
+	onboardRoom(c2, "bob", "dev") // dev
+
+	fmt.Fprintf(c1, "/rooms\n")
+	text, _ := readUntil(c1, "][alice]:", 2*time.Second)
+
+	if !strings.Contains(text, "general") {
+		t.Error("/rooms should list 'general'")
+	}
+	if !strings.Contains(text, "dev") {
+		t.Error("/rooms should list 'dev'")
+	}
+	if !strings.Contains(text, "(current)") {
+		t.Error("/rooms should mark the current room")
+	}
+}
+
+func TestListShowsRoomMembersOnly(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")                // general
+	onboardRoom(c2, "bob", "dev") // dev
+
+	fmt.Fprintf(c1, "/list\n")
+	text, _ := readUntil(c1, "][alice]:", 2*time.Second)
+
+	if !strings.Contains(text, "alice") {
+		t.Error("/list should show alice (same room)")
+	}
+	if strings.Contains(text, "bob") {
+		t.Error("/list should NOT show bob (different room)")
+	}
+}
+
+func TestKickSameRoomOnly(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin1")
+	onboardRoom(c2, "target", "dev")
+
+	s.GetClient("admin1").SetAdmin(true)
+
+	// Admin in "general" tries to kick user in "dev"
+	fmt.Fprintf(c1, "/kick target\n")
+	text, _ := readUntil(c1, "][admin1]:", 2*time.Second)
+	if !strings.Contains(text, "not in your room") && !strings.Contains(text, "not found") {
+		t.Errorf("kick across rooms should fail, got: %q", text)
+	}
+
+	// Target should still be connected
+	if s.GetClient("target") == nil {
+		t.Error("target should still be connected")
+	}
+}
+
+func TestWhisperCrossRoom(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")                // general
+	onboardRoom(c2, "bob", "dev") // dev
+
+	// Alice whispers to bob across rooms
+	fmt.Fprintf(c1, "/whisper bob hi from alice\n")
+	readUntil(c1, "PM to bob", time.Second)
+
+	// Bob should receive it
+	text, _ := readUntil(c2, "PM from alice", 2*time.Second)
+	if !strings.Contains(text, "hi from alice") {
+		t.Errorf("bob should receive cross-room whisper, got: %q", text)
+	}
+}
+
+func TestAnnouncementAllRooms(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin1")                // general
+	onboardRoom(c2, "bob", "dev")  // dev
+
+	s.GetClient("admin1").SetAdmin(true)
+
+	fmt.Fprintf(c1, "/announce Server maintenance tonight\n")
+	readUntil(c1, "][admin1]:", time.Second)
+
+	// Bob in different room should also see the announcement
+	text, _ := readUntil(c2, "Server maintenance tonight", 2*time.Second)
+	if !strings.Contains(text, "[ANNOUNCEMENT]") {
+		t.Errorf("announcement should reach clients in all rooms, got: %q", text)
+	}
+}
+
+func TestNameChangeRoomScoped(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+	c3 := connectPipe(s)
+	defer c3.Close()
+
+	onboard(c1, "alice")                 // general
+	onboard(c2, "bob")                   // general
+	onboardRoom(c3, "carol", "dev") // dev
+
+	readUntil(c1, "bob has joined", time.Second)
+
+	fmt.Fprintf(c1, "/name alice2\n")
+	readUntil(c1, "][alice2]:", time.Second)
+
+	// Bob (same room) should see name change
+	text, _ := readUntil(c2, "changed their name", 2*time.Second)
+	if !strings.Contains(text, "alice changed their name to alice2") {
+		t.Error("bob should see name change in same room")
+	}
+
+	// Carol (different room) should NOT see name change
+	text = drainFor(c3, 500*time.Millisecond)
+	if strings.Contains(text, "alice") && strings.Contains(text, "changed") {
+		t.Error("carol should NOT see name change from different room")
+	}
+}
+
+func TestMuteIsGlobal(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "admin1")
+	onboard(c2, "target")
+	readUntil(c1, "target has joined", time.Second)
+
+	s.GetClient("admin1").SetAdmin(true)
+
+	// Mute target
+	fmt.Fprintf(c1, "/mute target\n")
+	readUntil(c2, "muted", time.Second)
+	// Drain remaining mute broadcast + prompt
+	readUntil(c2, "][target]:", time.Second)
+
+	// Target switches rooms
+	fmt.Fprintf(c2, "/create newroom\n")
+	readUntil(c2, "][target]:", 2*time.Second)
+
+	// Target should still be muted after room switch
+	fmt.Fprintf(c2, "hello\n")
+	text, _ := readUntil(c2, "][target]:", time.Second)
+	if !strings.Contains(text, "You are muted") {
+		t.Error("target should still be muted after switching rooms")
+	}
+}
+
+func TestRoomAutoDelete(t *testing.T) {
+	s := New("0")
+	c := connectPipe(s)
+	defer c.Close()
+	onboardRoom(c, "alice", "temp")
+
+	// Room "temp" should exist
+	names := s.GetRoomNames()
+	found := false
+	for _, n := range names {
+		if n == "temp" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("room 'temp' should exist while alice is in it")
+	}
+
+	// Alice leaves
+	c.Close()
+	time.Sleep(300 * time.Millisecond)
+
+	// Room "temp" should be deleted
+	names = s.GetRoomNames()
+	for _, n := range names {
+		if n == "temp" {
+			t.Error("room 'temp' should be deleted when empty")
+		}
+	}
+}
+
+func TestRoomDefaultProtected(t *testing.T) {
+	s := New("0")
+	c := connectPipe(s)
+	defer c.Close()
+	onboard(c, "alice") // general
+
+	// Alice switches away from general
+	fmt.Fprintf(c, "/create newroom\n")
+	readUntil(c, "Switched to room", 2*time.Second)
+
+	time.Sleep(200 * time.Millisecond)
+
+	// "general" should still exist even though it's empty
+	names := s.GetRoomNames()
+	found := false
+	for _, n := range names {
+		if n == "general" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("default room 'general' should NOT be deleted when empty")
+	}
+}
+
+func TestRoomQueuePerRoom(t *testing.T) {
+	s := New("0")
+
+	// Fill "general" to capacity
+	generalConns := make([]net.Conn, 10)
+	for i := 0; i < 10; i++ {
+		generalConns[i] = connectPipe(s)
+		defer generalConns[i].Close()
+		onboard(generalConns[i], fmt.Sprintf("gen%d", i))
+	}
+
+	// A client selecting "dev" should NOT be queued (dev has space)
+	c := connectPipe(s)
+	defer c.Close()
+	_, err := onboardRoom(c, "devuser", "dev")
+	if err != nil {
+		t.Fatalf("client should join 'dev' without queuing: %v", err)
+	}
+	if s.GetClient("devuser").Room != "dev" {
+		t.Error("devuser should be in 'dev'")
+	}
+}
+
+func TestBanDisconnectsAcrossRooms(t *testing.T) {
+	s := newServerWithAdmins(t)
+	s.HeartbeatInterval = 1 * time.Hour
+
+	// admin1 and target1 in general, target2 in dev — same IP
+	c1 := connectPipeWithIP(s, "10.0.0.1:1000")
+	defer c1.Close()
+	onboard(c1, "admin1")
+	s.GetClient("admin1").SetAdmin(true)
+
+	c2 := connectPipeWithIP(s, "10.0.0.2:1001")
+	defer c2.Close()
+	onboard(c2, "target1")
+	readUntil(c1, "target1 has joined", time.Second)
+
+	c3 := connectPipeWithIP(s, "10.0.0.2:1002") // same IP as target1
+	defer c3.Close()
+	onboardRoom(c3, "target2", "dev")
+
+	// Admin bans target1 — should also disconnect target2 (same IP, different room)
+	fmt.Fprintf(c1, "/ban target1\n")
+	readUntil(c1, "][admin1]:", 2*time.Second)
+
+	time.Sleep(300 * time.Millisecond)
+
+	if s.GetClient("target1") != nil {
+		t.Error("target1 should be disconnected after ban")
+	}
+	if s.GetClient("target2") != nil {
+		t.Error("target2 (same IP, different room) should be disconnected after ban")
+	}
+}
+
+func TestOperatorListShowsAllRooms(t *testing.T) {
+	s := newServerWithAdmins(t)
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")                // general
+	onboardRoom(c2, "bob", "dev") // dev
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/list")
+	output := buf.String()
+
+	if !strings.Contains(output, "Room general") {
+		t.Error("operator /list should show room 'general'")
+	}
+	if !strings.Contains(output, "Room dev") {
+		t.Error("operator /list should show room 'dev'")
+	}
+	if !strings.Contains(output, "alice") {
+		t.Error("operator /list should show alice")
+	}
+	if !strings.Contains(output, "bob") {
+		t.Error("operator /list should show bob")
+	}
+}
+
+func TestOperatorRoomsCommand(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboard(c1, "alice")
+	onboardRoom(c2, "bob", "dev")
+
+	var buf strings.Builder
+	s.OperatorOutput = &buf
+
+	s.OperatorDispatch("/rooms")
+	output := buf.String()
+
+	if !strings.Contains(output, "general") || !strings.Contains(output, "dev") {
+		t.Errorf("operator /rooms should list all rooms, got: %q", output)
+	}
+}
+
+func TestSwitchRoomHistoryDelivered(t *testing.T) {
+	s := New("0")
+	c1 := connectPipe(s)
+	defer c1.Close()
+	c2 := connectPipe(s)
+	defer c2.Close()
+
+	onboardRoom(c1, "alice", "dev")
+	// Alice sends a message in dev
+	fmt.Fprintf(c1, "hello dev\n")
+	readUntil(c1, "][alice]:", time.Second)
+
+	onboard(c2, "bob") // general
+
+	// Bob switches to dev and should see alice's message in history
+	fmt.Fprintf(c2, "/switch dev\n")
+	text, _ := readUntil(c2, "Switched to room 'dev'", 2*time.Second)
+	if !strings.Contains(text, "hello dev") {
+		t.Errorf("bob should see dev room history after switching, got: %q", text)
 	}
 }

@@ -35,6 +35,7 @@ type Message struct {
 	Content   string
 	Type      MessageType
 	Extra     string
+	Room      string
 }
 
 // FormatTimestamp formats a time as YYYY-MM-DD HH:MM:SS in 24-hour local time.
@@ -105,27 +106,32 @@ func (m Message) Display() string {
 // FormatLogLine produces a parseable line for the daily log file.
 func (m Message) FormatLogLine() string {
 	ts := FormatTimestamp(m.Timestamp)
+	// Room tag inserted between timestamp and type keyword for all types except MsgServerEvent
+	roomTag := ""
+	if m.Type != MsgServerEvent && m.Room != "" {
+		roomTag = "@" + m.Room + " "
+	}
 	switch m.Type {
 	case MsgChat:
-		return fmt.Sprintf("[%s] CHAT [%s]:%s", ts, m.Sender, m.Content)
+		return fmt.Sprintf("[%s] %sCHAT [%s]:%s", ts, roomTag, m.Sender, m.Content)
 	case MsgJoin:
-		return fmt.Sprintf("[%s] JOIN %s", ts, m.Sender)
+		return fmt.Sprintf("[%s] %sJOIN %s", ts, roomTag, m.Sender)
 	case MsgLeave:
 		reason := "voluntary"
 		if m.Extra != "" {
 			reason = m.Extra
 		}
-		return fmt.Sprintf("[%s] LEAVE %s %s", ts, m.Sender, reason)
+		return fmt.Sprintf("[%s] %sLEAVE %s %s", ts, roomTag, m.Sender, reason)
 	case MsgNameChange:
-		return fmt.Sprintf("[%s] NAMECHANGE %s %s", ts, m.Extra, m.Sender)
+		return fmt.Sprintf("[%s] %sNAMECHANGE %s %s", ts, roomTag, m.Extra, m.Sender)
 	case MsgAnnouncement:
-		return fmt.Sprintf("[%s] ANNOUNCE [%s]:%s", ts, m.Extra, m.Content)
+		return fmt.Sprintf("[%s] %sANNOUNCE [%s]:%s", ts, roomTag, m.Extra, m.Content)
 	case MsgModeration:
-		return fmt.Sprintf("[%s] MOD %s %s %s", ts, m.Content, m.Sender, m.Extra)
+		return fmt.Sprintf("[%s] %sMOD %s %s %s", ts, roomTag, m.Content, m.Sender, m.Extra)
 	case MsgServerEvent:
 		return fmt.Sprintf("[%s] SERVER %s", ts, m.Content)
 	default:
-		return fmt.Sprintf("[%s] UNKNOWN %s", ts, m.Content)
+		return fmt.Sprintf("[%s] %sUNKNOWN %s", ts, roomTag, m.Content)
 	}
 }
 
@@ -152,11 +158,22 @@ func ParseLogLine(line string) (Message, error) {
 	}
 	ts := time.Date(year, time.Month(month), day, hour, min, sec, 0, time.Local)
 
-	// After "] " comes the type keyword
+	// After "] " comes an optional @room tag then the type keyword
 	if closeBracket+2 >= len(line) {
 		return Message{}, fmt.Errorf("invalid format: no content after timestamp")
 	}
 	rest := line[closeBracket+2:]
+
+	// Extract optional room tag
+	var room string
+	if len(rest) > 0 && rest[0] == '@' {
+		spaceIdx := strings.IndexByte(rest, ' ')
+		if spaceIdx < 0 {
+			return Message{}, fmt.Errorf("invalid format: room tag without type keyword")
+		}
+		room = rest[1:spaceIdx]
+		rest = rest[spaceIdx+1:]
+	}
 
 	if strings.HasPrefix(rest, "CHAT ") {
 		inner := rest[5:]
@@ -169,21 +186,21 @@ func ParseLogLine(line string) (Message, error) {
 		}
 		sender := inner[1:idx]
 		content := inner[idx+2:]
-		return Message{Timestamp: ts, Type: MsgChat, Sender: sender, Content: content}, nil
+		return Message{Timestamp: ts, Type: MsgChat, Sender: sender, Content: content, Room: room}, nil
 	}
 
 	if strings.HasPrefix(rest, "JOIN ") {
 		sender := rest[5:]
-		return Message{Timestamp: ts, Type: MsgJoin, Sender: sender}, nil
+		return Message{Timestamp: ts, Type: MsgJoin, Sender: sender, Room: room}, nil
 	}
 
 	if strings.HasPrefix(rest, "LEAVE ") {
 		parts := rest[6:]
 		idx := strings.IndexByte(parts, ' ')
 		if idx < 0 {
-			return Message{Timestamp: ts, Type: MsgLeave, Sender: parts, Extra: "voluntary"}, nil
+			return Message{Timestamp: ts, Type: MsgLeave, Sender: parts, Extra: "voluntary", Room: room}, nil
 		}
-		return Message{Timestamp: ts, Type: MsgLeave, Sender: parts[:idx], Extra: parts[idx+1:]}, nil
+		return Message{Timestamp: ts, Type: MsgLeave, Sender: parts[:idx], Extra: parts[idx+1:], Room: room}, nil
 	}
 
 	if strings.HasPrefix(rest, "NAMECHANGE ") {
@@ -192,7 +209,7 @@ func ParseLogLine(line string) (Message, error) {
 		if idx < 0 {
 			return Message{}, fmt.Errorf("invalid NAMECHANGE format")
 		}
-		return Message{Timestamp: ts, Type: MsgNameChange, Sender: parts[idx+1:], Extra: parts[:idx]}, nil
+		return Message{Timestamp: ts, Type: MsgNameChange, Sender: parts[idx+1:], Extra: parts[:idx], Room: room}, nil
 	}
 
 	if strings.HasPrefix(rest, "ANNOUNCE ") {
@@ -206,7 +223,7 @@ func ParseLogLine(line string) (Message, error) {
 		}
 		announcer := inner[1:idx]
 		content := inner[idx+2:]
-		return Message{Timestamp: ts, Type: MsgAnnouncement, Content: content, Extra: announcer}, nil
+		return Message{Timestamp: ts, Type: MsgAnnouncement, Content: content, Extra: announcer, Room: room}, nil
 	}
 
 	if strings.HasPrefix(rest, "MOD ") {
@@ -214,7 +231,7 @@ func ParseLogLine(line string) (Message, error) {
 		if len(fields) < 3 {
 			return Message{}, fmt.Errorf("invalid MOD format")
 		}
-		return Message{Timestamp: ts, Type: MsgModeration, Content: fields[0], Sender: fields[1], Extra: fields[2]}, nil
+		return Message{Timestamp: ts, Type: MsgModeration, Content: fields[0], Sender: fields[1], Extra: fields[2], Room: room}, nil
 	}
 
 	if strings.HasPrefix(rest, "SERVER ") {

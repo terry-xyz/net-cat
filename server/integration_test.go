@@ -151,8 +151,8 @@ func tcpDial(t *testing.T, addr string) net.Conn {
 	return conn
 }
 
-// tcpOnboard connects to the server, completes onboarding with the given name,
-// and returns the connection ready for interactive messaging (echo mode active).
+// tcpOnboard connects to the server, completes onboarding with the given name
+// (default room), and returns the connection ready for interactive messaging.
 func tcpOnboard(t *testing.T, addr, name string) net.Conn {
 	t.Helper()
 	conn := tcpDial(t, addr)
@@ -162,6 +162,13 @@ func tcpOnboard(t *testing.T, addr, name string) net.Conn {
 		t.Fatalf("tcpOnboard(%s): banner read failed: %v", name, err)
 	}
 	fmt.Fprintf(conn, "%s\n", name)
+	// Handle room selection prompt (press Enter for default room)
+	_, err = readUntil(conn, "[ENTER ROOM NAME]", 3*time.Second)
+	if err != nil {
+		conn.Close()
+		t.Fatalf("tcpOnboard(%s): room prompt read failed: %v", name, err)
+	}
+	fmt.Fprintf(conn, "\n")
 	_, err = readUntil(conn, "]["+name+"]:", 3*time.Second)
 	if err != nil {
 		conn.Close()
@@ -270,6 +277,8 @@ func TestIntegrationFullChatSession(t *testing.T) {
 	defer dave.Close()
 	readUntil(dave, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(dave, "dave\n")
+	readUntil(dave, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(dave, "\n")
 	historyText, _ := readUntil(dave, "][dave]:", 3*time.Second)
 
 	// History should contain messages and events
@@ -361,6 +370,8 @@ func TestIntegrationAdminWorkflow(t *testing.T) {
 	defer eve.Close()
 	readUntil(eve, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(eve, "eve\n")
+	readUntil(eve, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(eve, "\n")
 	historyText, _ := readUntil(eve, "][eve]:", 3*time.Second)
 	stripped := stripAnsi(historyText)
 
@@ -393,12 +404,20 @@ func TestIntegrationConnectionCapacity(t *testing.T) {
 		}
 	}()
 
-	// Connect 3 queued clients — they should NOT get the banner
+	// In the new flow, clients go through banner+name+room selection BEFORE being queued.
+	// Queue 3 clients for the default room.
 	var queuedConns [3]net.Conn
 	for i := 0; i < 3; i++ {
 		queuedConns[i] = tcpDial(t, addr)
 		defer queuedConns[i].Close()
 
+		// Complete banner + name
+		readUntil(queuedConns[i], "[ENTER YOUR NAME]:", 3*time.Second)
+		fmt.Fprintf(queuedConns[i], "queued%d\n", i+1)
+		// Complete room selection (default room)
+		readUntil(queuedConns[i], "[ENTER ROOM NAME]", 3*time.Second)
+		fmt.Fprintf(queuedConns[i], "\n")
+		// Should get queue prompt since room is full
 		text, err := readUntil(queuedConns[i], "Would you like to wait?", 3*time.Second)
 		if err != nil {
 			t.Fatalf("queued client %d: did not get queue prompt: %v", i+1, err)
@@ -406,10 +425,6 @@ func TestIntegrationConnectionCapacity(t *testing.T) {
 		expectedPos := fmt.Sprintf("#%d", i+1)
 		if !strings.Contains(text, expectedPos) {
 			t.Errorf("queued client %d: expected position %s, got: %q", i+1, expectedPos, text)
-		}
-		// Should NOT contain the welcome banner
-		if strings.Contains(text, "Welcome to TCP-Chat!") {
-			t.Errorf("queued client %d: should NOT receive welcome banner", i+1)
 		}
 		fmt.Fprintf(queuedConns[i], "yes\n")
 	}
@@ -420,20 +435,10 @@ func TestIntegrationConnectionCapacity(t *testing.T) {
 	activeConns[0].Close()
 	activeConns[0] = nil
 
-	// First queued client should be admitted and receive the banner
-	bannerText, err := readUntil(queuedConns[0], "[ENTER YOUR NAME]:", 5*time.Second)
+	// First queued client should be admitted (already named, gets prompt directly)
+	_, err := readUntil(queuedConns[0], "][queued1]:", 5*time.Second)
 	if err != nil {
 		t.Fatalf("first queued client not admitted: %v", err)
-	}
-	if !strings.Contains(bannerText, "Welcome to TCP-Chat!") {
-		t.Error("admitted client should receive welcome banner")
-	}
-
-	// Complete onboarding for admitted client
-	fmt.Fprintf(queuedConns[0], "queued1\n")
-	_, err = readUntil(queuedConns[0], "][queued1]:", 3*time.Second)
-	if err != nil {
-		t.Fatalf("admitted client onboarding failed: %v", err)
 	}
 
 	// Remaining queued clients should have received position updates
@@ -505,6 +510,8 @@ func TestIntegrationCrashRecovery(t *testing.T) {
 	defer carol.Close()
 	readUntil(carol, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(carol, "carol\n")
+	readUntil(carol, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(carol, "\n")
 	historyText, err := readUntil(carol, "][carol]:", 5*time.Second)
 	if err != nil {
 		t.Fatalf("carol onboarding failed: %v", err)
@@ -554,6 +561,8 @@ func TestIntegrationNameChange(t *testing.T) {
 	defer carol.Close()
 	readUntil(carol, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(carol, "carol\n")
+	readUntil(carol, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(carol, "\n")
 	historyText, _ := readUntil(carol, "][carol]:", 3*time.Second)
 	if !strings.Contains(stripAnsi(historyText), "alice changed their name to alice2") {
 		t.Error("carol's history should contain name change event")
@@ -612,6 +621,8 @@ func TestIntegrationWhisperPrivacy(t *testing.T) {
 	defer dave.Close()
 	readUntil(dave, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(dave, "dave\n")
+	readUntil(dave, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(dave, "\n")
 	historyText, _ := readUntil(dave, "][dave]:", 3*time.Second)
 	if strings.Contains(stripAnsi(historyText), "secret message") {
 		t.Error("whisper should NOT appear in history")
@@ -912,6 +923,8 @@ func TestIntegrationReservedName(t *testing.T) {
 
 	// Should still be able to pick a valid name after rejection
 	fmt.Fprintf(conn, "validuser\n")
+	readUntil(conn, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(conn, "\n")
 	_, err := readUntil(conn, "][validuser]:", 3*time.Second)
 	if err != nil {
 		t.Errorf("should be able to pick a valid name after reserved rejection: %v", err)
@@ -1111,11 +1124,14 @@ func TestIntegrationAdminPersistence(t *testing.T) {
 	defer alice2.Close()
 	readUntil(alice2, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(alice2, "alice\n")
-	text, _ := readUntil(alice2, "][alice]:", 5*time.Second)
+	// Check for admin greeting before room selection
+	text, _ := readUntil(alice2, "[ENTER ROOM NAME]", 5*time.Second)
 	stripped := stripAnsi(text)
 	if !strings.Contains(stripped, "Welcome back") || !strings.Contains(stripped, "admin") {
 		t.Errorf("alice should be greeted as admin on reconnect, got: %q", stripped)
 	}
+	fmt.Fprintf(alice2, "\n")
+	readUntil(alice2, "][alice]:", 5*time.Second)
 
 	// Verify alice can use admin commands
 	bob := tcpOnboard(t, addr2, "bob")

@@ -233,12 +233,19 @@ func TestStressQueuePositions(t *testing.T) {
 	}
 	time.Sleep(200 * time.Millisecond)
 
-	// Connect 20 queued clients
+	// Connect 20 queued clients (new flow: banner → name → room → queue)
 	queuedConns := make([]net.Conn, 20)
 	for i := 0; i < 20; i++ {
 		conn := tcpDial(t, addr)
 		queuedConns[i] = conn
 		defer conn.Close()
+
+		// Complete name registration
+		readUntil(conn, "[ENTER YOUR NAME]:", 3*time.Second)
+		fmt.Fprintf(conn, "queued%d\n", i)
+		// Complete room selection (default room)
+		readUntil(conn, "[ENTER ROOM NAME]", 3*time.Second)
+		fmt.Fprintf(conn, "\n")
 
 		text, err := readUntil(conn, "Would you like to wait?", 3*time.Second)
 		if err != nil {
@@ -265,31 +272,22 @@ func TestStressQueuePositions(t *testing.T) {
 		time.Sleep(300 * time.Millisecond) // let admission + position updates propagate
 	}
 
-	// First 3 queued clients should be admitted (receive banner)
+	// First 3 queued clients should be admitted (already named, get prompt directly)
 	for i := 0; i < 3; i++ {
-		_, err := readUntil(queuedConns[i], "[ENTER YOUR NAME]:", 5*time.Second)
+		name := fmt.Sprintf("queued%d", i)
+		_, err := readUntil(queuedConns[i], "]["+name+"]:", 5*time.Second)
 		if err != nil {
 			t.Errorf("queued client %d should have been admitted: %v", i, err)
-			continue
-		}
-		// Complete onboarding
-		name := fmt.Sprintf("queued%d", i)
-		fmt.Fprintf(queuedConns[i], "%s\n", name)
-		_, err = readUntil(queuedConns[i], "]["+name+"]:", 3*time.Second)
-		if err != nil {
-			t.Errorf("admitted client %d onboarding failed: %v", i, err)
 		}
 	}
 
 	// Remaining 17 queued clients should have updated positions
-	// Client at index 3 was originally #4, should now be #1
-	// We just check that position updates were sent (contains a '#' position marker)
 	time.Sleep(500 * time.Millisecond)
 
-	// Verify server still has 10 active clients
-	clientCount := s.GetClientCount()
-	if clientCount != 10 {
-		t.Errorf("expected 10 active clients after admission, got %d", clientCount)
+	// Verify room still has 10 active clients (capacity is per-room)
+	roomCount := s.GetRoomClientCount(s.DefaultRoom)
+	if roomCount != 10 {
+		t.Errorf("expected 10 active clients in room after admission, got %d", roomCount)
 	}
 
 	// Verify queue is now 17

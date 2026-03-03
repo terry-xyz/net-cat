@@ -91,10 +91,8 @@ nc localhost 8989
 ### On Windows
 
 ```bash
-telnet localhost 8989
+nc localhost 8989
 ```
-
-> If `telnet` is not available on Windows, enable it through **Control Panel > Programs > Turn Windows features on or off > Telnet Client**.
 
 Replace `localhost` with the server's IP address if connecting from a different computer on the network (e.g., `nc 192.168.1.50 8989`).
 
@@ -102,8 +100,9 @@ Replace `localhost` with the server's IP address if connecting from a different 
 
 1. You see the welcome banner with the penguin ASCII art.
 2. You're asked to enter a name. Pick something unique — no spaces allowed, max 32 characters.
-3. Once your name is accepted, you're in the chat. Everything you type is sent to everyone.
-4. If the server is full (10 people max), you'll be asked if you want to wait in a queue. When a spot opens, you're automatically let in.
+3. You choose a chat room to join. Press Enter to join the default room (`general`), or type a room name to join or create a different room.
+4. Once you're in, everything you type is sent to everyone in your room.
+5. If the room is full (10 people max per room), you'll be asked if you want to wait in a queue. When a spot opens, you're automatically let in.
 
 ## Chatting
 
@@ -121,8 +120,11 @@ Type these instead of a regular message. All commands start with `/`.
 
 | Command | What It Does |
 |---|---|
-| `/list` | Shows everyone currently connected and how long they've been idle |
-| `/whisper <name> <message>` | Sends a private message only that person can see |
+| `/list` | Shows everyone in your current room and how long they've been idle |
+| `/rooms` | Lists all available rooms with client counts, marks your current room |
+| `/switch <room>` | Switch to another room (creates it if it doesn't exist yet) |
+| `/create <room>` | Create and switch to a new room |
+| `/whisper <name> <message>` | Sends a private message only that person can see (works across rooms) |
 | `/name <newname>` | Changes your display name |
 | `/help` | Shows all commands available to you |
 | `/quit` | Disconnects you from the chat |
@@ -133,7 +135,7 @@ These only work if the server operator has promoted you to admin.
 
 | Command | What It Does |
 |---|---|
-| `/kick <name>` | Removes someone from the chat (they can rejoin after 5 minutes) |
+| `/kick <name>` | Removes someone from your room (they can rejoin after 5 minutes) |
 | `/ban <name>` | Permanently removes someone (they cannot rejoin until the server restarts) |
 | `/mute <name>` | Prevents someone from sending messages |
 | `/unmute <name>` | Allows a muted person to send messages again |
@@ -171,7 +173,7 @@ The server automatically saves all chat activity to daily log files in a `logs/`
 logs/chat_2026-02-24.log
 ```
 
-A new log file is created each day. If you restart the server on the same day, the previous messages are loaded back so new users can see the chat history.
+A new log file is created each day. Log entries include `@roomname` tags to track which room each event occurred in. If you restart the server on the same day, the previous messages are loaded back into the correct rooms so new users see room-specific chat history.
 
 ## Admin Persistence
 

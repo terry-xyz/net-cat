@@ -17,7 +17,7 @@ func main() {
 	if len(os.Args) == 2 {
 		port = os.Args[1]
 	}
-	if !IsValidPort(port) {
+	if !isValidPort(port) {
 		fmt.Println("[USAGE]: ./TCPChat $port")
 		os.Exit(1)
 	}
@@ -50,8 +50,8 @@ func main() {
 	}
 }
 
-// IsValidPort validates a port string using byte-range checks (no strconv).
-func IsValidPort(s string) bool {
+// isValidPort validates a port string using byte-range checks (no strconv).
+func isValidPort(s string) bool {
 	if len(s) == 0 {
 		return false
 	}

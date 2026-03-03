@@ -35,6 +35,7 @@ type Client struct {
 	Username string
 	JoinTime time.Time
 	IP       string
+	Room     string
 
 	// lastActivity, muted, admin are accessed from multiple goroutines (handler,
 	// operator, heartbeat) — protected by mu alongside lastInput et al.
@@ -260,16 +261,13 @@ func (c *Client) writeLoop() {
 				if len(msg.data) > 0 && len(c.inputBuf) < maxInteractiveBuf {
 					c.inputBuf = append(c.inputBuf, msg.data[0])
 				}
-				c.Conn.Write([]byte(msg.data))
 			case wmBackspace:
 				if len(c.inputBuf) > 0 {
 					c.inputBuf = c.inputBuf[:len(c.inputBuf)-1]
 				}
-				c.Conn.Write([]byte("\b \b"))
 			case wmNewline:
 				c.inputBuf = c.inputBuf[:0]
 				c.prompt = ""
-				c.Conn.Write([]byte("\r\n"))
 			}
 		case <-c.done:
 			return
