@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v0.2.2...v1.0.0) (2026-03-04)
+
+### Added
+
+- add multi-room chat support and restructure server package ([#31](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/9d982f1d0269b0cd2879dda242bcb637213b0bc6))
+
+### Fixed
+
+- *(server)* enforce capacity limit in RegisterClient to prevent TOCTOU race ([#27](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/155799264f5f3401f4ddb3a23d24feb312416bf4))
+- *(server)* add /list recovery suggestion to 'user not found' error messages ([#26](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/d8e0a19fcb5c63613dc6febb96fa1675dc841d17))
+- *(server)* disconnect all same-IP clients on /ban for NAT compliance ([#25](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/993bd626dc7c16866de76a2e71ce8974dfb1da73))
+
+### Documentation
+
+- add README and update .gitignore ([#28](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/586a4a07a1a99b4cbfd221b985149349916c7f8c))
+
 ## [0.2.2](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v0.2.1...v0.2.2) (2026-02-24)
 
 ### Added
