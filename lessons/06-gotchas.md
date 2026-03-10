@@ -273,6 +273,30 @@ func (l *Logger) Log(msg models.Message) {
 
 ---
 
+## Gotcha 11: Bash `/dev/tcp` Line Buffering
+
+**The bug:** When connecting with `exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3`, the server's echo mode (`ReadLineInteractive`) expects byte-by-byte input. But `cat >&3` is line-buffered by the shell — characters aren't sent until the user presses Enter. This means:
+
+1. The server sends a prompt and waits for character echoes, but no bytes arrive while the user types
+2. When Enter is pressed, all bytes arrive at once — the server processes them correctly, but the real-time echo experience is lost
+3. `writeWithContinuity` still works (it redraws prompt + partial input), but with line-buffered input the partial input is always empty until the full line arrives
+
+```
+NETCAT (byte-by-byte):
+  User types 'h' → server receives 'h' → echoes 'h' back → user sees 'h'
+  User types 'i' → server receives 'i' → echoes 'i' back → user sees 'hi'
+
+BASH /dev/tcp (line-buffered):
+  User types 'hi' locally → nothing sent yet → user sees local 'hi'
+  User presses Enter → 'hi\n' arrives all at once → server processes 'hi'
+```
+
+**This is NOT a bug in the server** — it's a property of how `cat` buffers terminal input. The server handles both cases correctly. Netcat sends each keystroke immediately (raw socket mode), while `cat` collects a full line first.
+
+**How to spot this:** User reports "I can't see other people's messages while I'm typing" when using the bash method. The messages actually arrive, but since `cat >&3` holds the terminal, the background `cat <&3` output gets interleaved awkwardly.
+
+---
+
 ## The Gotcha Mindset
 
 When reading or writing code, always ask:

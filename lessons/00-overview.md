@@ -144,6 +144,49 @@ func main() {
 
 ---
 
+## How to Connect (Quick Reference)
+
+You'll need to connect to the server to test and explore. Here are your options:
+
+### Option 1: netcat (recommended)
+```bash
+nc localhost 8989
+```
+Best experience — real-time character echo, backspace works, feels like a native terminal.
+
+### Option 2: bash only (no extra tools)
+```bash
+exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3
+```
+
+This uses bash's built-in `/dev/tcp` pseudo-device. It opens file descriptor 3 as a bidirectional TCP socket, reads server output in the background (`cat <&3 &`), and sends your input in the foreground (`cat >&3`).
+
+> **Caveat:** Input is line-buffered — you type a full line locally and press Enter to send it. You won't see the server's real-time character echo or prompt redraw while typing. This is fine for chatting and running commands, but the experience is slightly less polished than netcat.
+
+To disconnect: press `Ctrl+C`, then run `exec 3>&-` to close the file descriptor.
+
+**Works in:** bash (Linux, macOS, Git Bash on Windows). Does NOT work in zsh, sh, dash, or fish.
+
+### Step-by-step breakdown of the bash method
+
+If you're curious how it works under the hood:
+
+```bash
+exec 3<>/dev/tcp/localhost/8989
+#    │ │  └── bash "virtual" TCP device (not a real file on disk)
+#    │ └── <> means open for BOTH reading and writing
+#    └── 3 is a file descriptor number (like a handle to the connection)
+
+cat <&3 &
+#   │    └── & runs this in the background
+#   └── read from file descriptor 3 (the server's output)
+
+cat >&3
+#   └── write to file descriptor 3 (send your typing to the server)
+```
+
+---
+
 ## What's Next
 
 In the next lesson, you'll learn the **core concepts** used throughout this codebase — goroutines, channels, mutexes, and more — explained from scratch.

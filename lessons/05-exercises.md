@@ -18,7 +18,14 @@
 ### Exercise 0.4: Understand a Comment
 **Task:** Find the comment above the `Message` struct in `models/message.go`. It explains what each field means for each message type. For `MsgModeration`, what does `Sender` represent? What does `Extra` represent?
 
-### Exercise 0.5: Trace an Import
+### Exercise 0.5: Connect Without Netcat
+**Task:** Start the server (`./TCPChat`) and connect using only bash — no `nc`. Use the `/dev/tcp` approach:
+```bash
+exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3
+```
+Send a message and verify it appears. Then disconnect with `Ctrl+C` and clean up with `exec 3>&-`. What differences do you notice compared to netcat?
+
+### Exercise 0.6: Trace an Import
 **Task:** Open `server/handler.go`. Find one import from the Go standard library (like `"fmt"` or `"time"`) and one import from this project (like `"net-cat/client"`). What's the difference in how they're written?
 
 ---

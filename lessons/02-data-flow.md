@@ -23,9 +23,11 @@ Think of this chat server like a **factory with multiple assembly lines running 
 
 ## Flow 1: A User Connects and Joins
 
+> **Connection methods:** The user connects via `nc localhost 8989` (netcat) or bash's built-in `exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3`. Either way, the server sees the same thing: an incoming TCP connection.
+
 ```mermaid
 sequenceDiagram
-    participant U as User (netcat)
+    participant U as User (netcat or bash /dev/tcp)
     participant H as handleConnection
     participant S as Server State
     participant W as writeLoop
@@ -116,6 +118,8 @@ sequenceDiagram
 ---
 
 ## Flow 3: Echo Mode (Input Continuity)
+
+> **Note on bash `/dev/tcp` connections:** The echo mode and input continuity described below work best with netcat, which sends each keystroke immediately. With the bash `cat >&3` approach, input is line-buffered by the shell — characters aren't sent until you press Enter. The server still activates echo mode, but the user doesn't see real-time echo because the data hasn't arrived yet. Once Enter is pressed, the whole line arrives at once.
 
 This is the trickiest part of the system. When Bob is mid-sentence and Alice's message arrives, Bob's terminal needs to:
 

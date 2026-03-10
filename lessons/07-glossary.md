@@ -43,6 +43,9 @@ These terms describe the chat system's concepts:
 | Echo Mode | After onboarding, the server echoes typed characters back. |
 | Input Continuity | Preserving partial typed text when a message arrives. |
 | Onboarding | The name validation + room selection flow for new connections. |
+| File Descriptor | A number handle to an open file/socket. `3<>/dev/tcp/...` opens fd 3. |
+| `/dev/tcp` | A bash pseudo-device for TCP connections. Not a real file on disk. |
+| Line Buffering | Input collected until Enter is pressed, then sent all at once. |
 
 ---
 
@@ -86,6 +89,21 @@ These terms describe the chat system's concepts:
 
 ---
 
+## Connection Methods
+
+| Method | Command | Best For |
+|--------|---------|----------|
+| netcat | `nc localhost 8989` | Full experience — real-time echo, backspace |
+| bash `/dev/tcp` | `exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3` | When netcat isn't available (bash only) |
+
+**Key differences:**
+- **netcat** sends each keystroke immediately (raw socket) → server echo mode works perfectly
+- **bash /dev/tcp** uses line-buffered `cat` → you type locally, send on Enter, no real-time echo
+- Both produce identical TCP connections — the server doesn't know the difference
+- `/dev/tcp` is a **bash-specific** feature (not a real file) — won't work in zsh, sh, dash, or fish
+
+---
+
 ## Abbreviations Decoded
 
 | Abbreviation | Full Form |
@@ -101,6 +119,7 @@ These terms describe the chat system's concepts:
 | `RW` | Read-Write (as in `sync.RWMutex`) |
 | `EOF` | End of File (or end of stream) |
 | `ASCII` | American Standard Code for Information Interchange |
+| `FD` | File Descriptor (a handle to an open file/socket, e.g., fd 3 in bash) |
 
 ---
 

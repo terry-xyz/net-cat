@@ -82,19 +82,44 @@ This starts the server on port `3000` instead. Valid ports are `1` through `6553
 
 Anyone on the same network can join. They do **not** need Go installed — just a terminal.
 
-### On Linux or macOS
+### Using netcat (recommended)
 
 ```bash
 nc localhost 8989
 ```
 
-### On Windows
+This works on Linux, macOS, and Windows (if netcat is installed).
+
+### Using bash only (no netcat needed)
+
+If you don't have `nc` installed, you can connect using bash's built-in `/dev/tcp` support:
 
 ```bash
-nc localhost 8989
+exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3
 ```
 
-Replace `localhost` with the server's IP address if connecting from a different computer on the network (e.g., `nc 192.168.1.50 8989`).
+Or step by step:
+
+```bash
+# 1. Open a TCP connection on file descriptor 3
+exec 3<>/dev/tcp/localhost/8989
+
+# 2. Read from the server in the background
+cat <&3 &
+
+# 3. Send your input to the server (type here)
+cat >&3
+```
+
+> **Note:** This works in **bash** only (Linux, macOS, Git Bash/MSYS2 on Windows). It does NOT work in `zsh`, `sh`, `dash`, or `fish`. With this method, your input is line-buffered — you type a full line and press Enter, rather than seeing each character echoed in real time like with netcat.
+
+To disconnect, press `Ctrl+C` and then clean up the file descriptor:
+
+```bash
+exec 3>&-
+```
+
+Replace `localhost` with the server's IP address if connecting from a different computer on the network (e.g., `nc 192.168.1.50 8989` or `exec 3<>/dev/tcp/192.168.1.50/8989`).
 
 ### What Happens When You Connect
 
@@ -204,4 +229,7 @@ go build -o TCPChat
 
 # 3. Connect from another terminal
 nc localhost 8989
+
+# Or, if you don't have netcat:
+exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3
 ```
