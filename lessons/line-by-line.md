@@ -1,6 +1,6 @@
 # Net-Cat Line By Line
 
-This file is the primary study artifact for the repository. It covers the production Go code only, in source order, and mirrors each line with a direct explanation. Tests are intentionally excluded from the walkthrough and should only inform concepts or risks when they reveal behavior the production code relies on.
+This file is the primary study artifact for the repository. It covers the production Go code only, in source order, and mirrors each actual code line with a direct explanation. Blank lines and source comments are preserved for readability but are not annotated. Tests are intentionally excluded from the walkthrough and should only inform concepts or risks when they reveal behavior the production code relies on.
 
 ## Covered Files
 
@@ -26,7 +26,6 @@ Bootstraps the process, validates CLI input, wires logging and signal handling, 
 ```go
 // L1: Declares `main` as the package for this directory so the compiler groups this file with the rest of that package.
 package main
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -42,7 +41,6 @@ import (
 	"os/signal"
 // L9: Closes the import block after listing all package dependencies.
 )
-// L10: Blank line that separates logical sections and keeps the file readable.
 
 // L11: Declares the `main` function, which starts a named unit of behavior other code can call.
 func main() {
@@ -70,11 +68,9 @@ func main() {
 		os.Exit(1)
 // L23: Closes the current block and returns control to the surrounding scope.
 	}
-// L24: Blank line that separates logical sections and keeps the file readable.
 
 // L25: Creates `srv` from the result of `server.New`, capturing fresh state for the rest of this scope.
 	srv := server.New(port)
-// L26: Blank line that separates logical sections and keeps the file readable.
 
 // L27: Creates `l, err` from the result of `logger.New`, capturing fresh state for the rest of this scope.
 	l, err := logger.New("logs")
@@ -86,7 +82,6 @@ func main() {
 	}
 // L31: Updates `srv.Logger` so subsequent logic sees the new state.
 	srv.Logger = l
-// L32: Blank line that separates logical sections and keeps the file readable.
 
 // L33: Creates `sigChan` from the result of `make`, capturing fresh state for the rest of this scope.
 	sigChan := make(chan os.Signal, 1)
@@ -98,9 +93,7 @@ func main() {
 		<-sigChan
 // L37: Calls `srv.Shutdown` here for its side effects or returned value in the surrounding control flow.
 		srv.Shutdown()
-// L38: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Drain subsequent signals so the default handler does not terminate
-// L39: Source comment carried through from the code; it documents intent for the lines that follow.
 		// the process before shutdown completes
 // L40: Starts a loop controlled by `range sigChan`, repeating until the loop condition or range is exhausted.
 		for range sigChan {
@@ -108,13 +101,10 @@ func main() {
 		}
 // L42: Carries forward the surrounding declaration or expression with the exact value or syntax needed here.
 	}()
-// L43: Blank line that separates logical sections and keeps the file readable.
 
-// L44: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Start operator terminal (reads commands from stdin)
 // L45: Launches the following call in a new goroutine so it can run concurrently with the current path.
 	go srv.StartOperator(os.Stdin)
-// L46: Blank line that separates logical sections and keeps the file readable.
 
 // L47: Evaluates `err := srv.Start(); err != nil` and enters the guarded branch only when that condition holds.
 	if err := srv.Start(); err != nil {
@@ -126,9 +116,7 @@ func main() {
 	}
 // L51: Closes the current block and returns control to the surrounding scope.
 }
-// L52: Blank line that separates logical sections and keeps the file readable.
 
-// L53: Source comment carried through from the code; it documents intent for the lines that follow.
 // isValidPort validates a port string using byte-range checks (no strconv).
 // L54: Declares the `isValidPort` function, which starts a named unit of behavior other code can call.
 func isValidPort(s string) bool {
@@ -171,17 +159,13 @@ Defines the command catalog, privilege metadata, and parsing helpers shared by c
 ```go
 // L1: Declares `cmd` as the package for this directory so the compiler groups this file with the rest of that package.
 package cmd
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Imports strings because later code relies on APIs from that package.
 import "strings"
-// L4: Blank line separating imports from the next declaration block.
 
-// L5: Source comment carried through from the code; it documents intent for the lines that follow.
 // PrivilegeLevel controls who may invoke a command.
 // L6: Defines the `PrivilegeLevel` type alias or named type so the rest of the package can express this concept explicitly.
 type PrivilegeLevel int
-// L7: Blank line that separates logical sections and keeps the file readable.
 
 // L8: Starts a constant block for related immutable values used throughout this file.
 const (
@@ -193,9 +177,7 @@ const (
 	PrivOperator                       // server operator terminal only
 // L12: Closes the grouped declaration block.
 )
-// L13: Blank line that separates logical sections and keeps the file readable.
 
-// L14: Source comment carried through from the code; it documents intent for the lines that follow.
 // CommandDef describes a registered command.
 // L15: Defines the `CommandDef` struct, which groups related state that this package manages together.
 type CommandDef struct {
@@ -209,9 +191,7 @@ type CommandDef struct {
 	Description string
 // L20: Closes the struct definition after listing all of its fields.
 }
-// L21: Blank line that separates logical sections and keeps the file readable.
 
-// L22: Source comment carried through from the code; it documents intent for the lines that follow.
 // Commands is the canonical command registry.
 // L23: Declares `Commands` in the current scope so later lines can fill or mutate it as needed.
 var Commands = map[string]CommandDef{
@@ -247,9 +227,7 @@ var Commands = map[string]CommandDef{
 	"demote":   {Name: "demote", MinPriv: PrivOperator, Usage: "/demote <name>", Description: "Demote an admin"},
 // L39: Closes the current block and returns control to the surrounding scope.
 }
-// L40: Blank line that separates logical sections and keeps the file readable.
 
-// L41: Source comment carried through from the code; it documents intent for the lines that follow.
 // CommandOrder defines the display order used by /help.
 // L42: Declares `CommandOrder` in the current scope so later lines can fill or mutate it as needed.
 var CommandOrder = []string{
@@ -261,11 +239,8 @@ var CommandOrder = []string{
 	"promote", "demote",
 // L46: Closes the current block and returns control to the surrounding scope.
 }
-// L47: Blank line that separates logical sections and keeps the file readable.
 
-// L48: Source comment carried through from the code; it documents intent for the lines that follow.
 // ParseCommand splits a /-prefixed input into command name and trimmed arguments.
-// L49: Source comment carried through from the code; it documents intent for the lines that follow.
 // Returns isCommand=false for non-command input.
 // L50: Declares the `ParseCommand` function, which starts a named unit of behavior other code can call.
 func ParseCommand(input string) (name string, args string, isCommand bool) {
@@ -295,9 +270,7 @@ func ParseCommand(input string) (name string, args string, isCommand bool) {
 	return rest[:idx], strings.TrimSpace(rest[idx+1:]), true
 // L63: Closes the current block and returns control to the surrounding scope.
 }
-// L64: Blank line that separates logical sections and keeps the file readable.
 
-// L65: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetPrivilegeLevel maps boolean flags to the corresponding level.
 // L66: Declares the `GetPrivilegeLevel` function, which starts a named unit of behavior other code can call.
 func GetPrivilegeLevel(isAdmin, isOperator bool) PrivilegeLevel {
@@ -326,7 +299,6 @@ Defines the canonical event model for chat activity, terminal rendering, log for
 ```go
 // L1: Declares `models` as the package for this directory so the compiler groups this file with the rest of that package.
 package models
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -338,13 +310,10 @@ import (
 	"time"
 // L7: Closes the import block after listing all package dependencies.
 )
-// L8: Blank line that separates logical sections and keeps the file readable.
 
-// L9: Source comment carried through from the code; it documents intent for the lines that follow.
 // MessageType identifies the kind of chat event.
 // L10: Defines the `MessageType` type alias or named type so the rest of the package can express this concept explicitly.
 type MessageType int
-// L11: Blank line that separates logical sections and keeps the file readable.
 
 // L12: Starts a constant block for related immutable values used throughout this file.
 const (
@@ -364,27 +333,16 @@ const (
 	MsgServerEvent
 // L20: Closes the grouped declaration block.
 )
-// L21: Blank line that separates logical sections and keeps the file readable.
 
-// L22: Source comment carried through from the code; it documents intent for the lines that follow.
 // Message represents a single chat event stored in history and logs.
-// L23: Source comment carried through from the code; it documents intent for the lines that follow.
 // Field semantics vary by Type:
-// L24: Source comment carried through from the code; it documents intent for the lines that follow.
 //
-// L25: Source comment carried through from the code; it documents intent for the lines that follow.
 //	MsgChat:         Sender=username, Content=message text
-// L26: Source comment carried through from the code; it documents intent for the lines that follow.
 //	MsgJoin:         Sender=username
-// L27: Source comment carried through from the code; it documents intent for the lines that follow.
 //	MsgLeave:        Sender=username, Extra=reason (voluntary|drop|kicked|banned)
-// L28: Source comment carried through from the code; it documents intent for the lines that follow.
 //	MsgNameChange:   Sender=new name, Extra=old name
-// L29: Source comment carried through from the code; it documents intent for the lines that follow.
 //	MsgAnnouncement: Content=message text, Extra=announcer name
-// L30: Source comment carried through from the code; it documents intent for the lines that follow.
 //	MsgModeration:   Sender=target, Content=action verb, Extra=admin name
-// L31: Source comment carried through from the code; it documents intent for the lines that follow.
 //	MsgServerEvent:  Content=description
 // L32: Defines the `Message` struct, which groups related state that this package manages together.
 type Message struct {
@@ -402,9 +360,7 @@ type Message struct {
 	Room      string
 // L39: Closes the struct definition after listing all of its fields.
 }
-// L40: Blank line that separates logical sections and keeps the file readable.
 
-// L41: Source comment carried through from the code; it documents intent for the lines that follow.
 // FormatTimestamp formats a time as YYYY-MM-DD HH:MM:SS in 24-hour local time.
 // L42: Declares the `FormatTimestamp` function, which starts a named unit of behavior other code can call.
 func FormatTimestamp(t time.Time) string {
@@ -416,7 +372,6 @@ func FormatTimestamp(t time.Time) string {
 		t.Hour(), t.Minute(), t.Second())
 // L46: Closes the current block and returns control to the surrounding scope.
 }
-// L47: Blank line that separates logical sections and keeps the file readable.
 
 // L48: Declares the `FormatChat` function, which starts a named unit of behavior other code can call.
 func FormatChat(t time.Time, username, content string) string {
@@ -424,7 +379,6 @@ func FormatChat(t time.Time, username, content string) string {
 	return fmt.Sprintf("[%s][%s]:%s", FormatTimestamp(t), username, content)
 // L50: Closes the current block and returns control to the surrounding scope.
 }
-// L51: Blank line that separates logical sections and keeps the file readable.
 
 // L52: Declares the `FormatPrompt` function, which starts a named unit of behavior other code can call.
 func FormatPrompt(t time.Time, username string) string {
@@ -432,7 +386,6 @@ func FormatPrompt(t time.Time, username string) string {
 	return fmt.Sprintf("[%s][%s]:", FormatTimestamp(t), username)
 // L54: Closes the current block and returns control to the surrounding scope.
 }
-// L55: Blank line that separates logical sections and keeps the file readable.
 
 // L56: Declares the `FormatJoin` function, which starts a named unit of behavior other code can call.
 func FormatJoin(username string) string {
@@ -440,7 +393,6 @@ func FormatJoin(username string) string {
 	return fmt.Sprintf("%s has joined our chat...", username)
 // L58: Closes the current block and returns control to the surrounding scope.
 }
-// L59: Blank line that separates logical sections and keeps the file readable.
 
 // L60: Declares the `FormatLeave` function, which starts a named unit of behavior other code can call.
 func FormatLeave(username string) string {
@@ -448,7 +400,6 @@ func FormatLeave(username string) string {
 	return fmt.Sprintf("%s has left our chat...", username)
 // L62: Closes the current block and returns control to the surrounding scope.
 }
-// L63: Blank line that separates logical sections and keeps the file readable.
 
 // L64: Declares the `FormatNameChange` function, which starts a named unit of behavior other code can call.
 func FormatNameChange(oldName, newName string) string {
@@ -456,7 +407,6 @@ func FormatNameChange(oldName, newName string) string {
 	return fmt.Sprintf("%s changed their name to %s", oldName, newName)
 // L66: Closes the current block and returns control to the surrounding scope.
 }
-// L67: Blank line that separates logical sections and keeps the file readable.
 
 // L68: Declares the `FormatAnnouncement` function, which starts a named unit of behavior other code can call.
 func FormatAnnouncement(message string) string {
@@ -464,7 +414,6 @@ func FormatAnnouncement(message string) string {
 	return fmt.Sprintf("[ANNOUNCEMENT]: %s", message)
 // L70: Closes the current block and returns control to the surrounding scope.
 }
-// L71: Blank line that separates logical sections and keeps the file readable.
 
 // L72: Declares the `FormatModeration` function, which starts a named unit of behavior other code can call.
 func FormatModeration(target, action, admin string) string {
@@ -472,7 +421,6 @@ func FormatModeration(target, action, admin string) string {
 	return fmt.Sprintf("%s was %s by %s", target, action, admin)
 // L74: Closes the current block and returns control to the surrounding scope.
 }
-// L75: Blank line that separates logical sections and keeps the file readable.
 
 // L76: Declares the `FormatWhisperReceive` function, which starts a named unit of behavior other code can call.
 func FormatWhisperReceive(t time.Time, sender, message string) string {
@@ -480,7 +428,6 @@ func FormatWhisperReceive(t time.Time, sender, message string) string {
 	return fmt.Sprintf("[%s][PM from %s]: %s", FormatTimestamp(t), sender, message)
 // L78: Closes the current block and returns control to the surrounding scope.
 }
-// L79: Blank line that separates logical sections and keeps the file readable.
 
 // L80: Declares the `FormatWhisperSend` function, which starts a named unit of behavior other code can call.
 func FormatWhisperSend(t time.Time, recipient, message string) string {
@@ -488,9 +435,7 @@ func FormatWhisperSend(t time.Time, recipient, message string) string {
 	return fmt.Sprintf("[%s][PM to %s]: %s", FormatTimestamp(t), recipient, message)
 // L82: Closes the current block and returns control to the surrounding scope.
 }
-// L83: Blank line that separates logical sections and keeps the file readable.
 
-// L84: Source comment carried through from the code; it documents intent for the lines that follow.
 // Display returns the string a client sees for this event.
 // L85: Declares the `Display` method on `m Message`, creating a reusable behavior entrypoint tied to that receiver state.
 func (m Message) Display() string {
@@ -532,15 +477,12 @@ func (m Message) Display() string {
 	}
 // L104: Closes the current block and returns control to the surrounding scope.
 }
-// L105: Blank line that separates logical sections and keeps the file readable.
 
-// L106: Source comment carried through from the code; it documents intent for the lines that follow.
 // FormatLogLine produces a parseable line for the daily log file.
 // L107: Declares the `FormatLogLine` method on `m Message`, creating a reusable behavior entrypoint tied to that receiver state.
 func (m Message) FormatLogLine() string {
 // L108: Creates `ts` from the result of `FormatTimestamp`, capturing fresh state for the rest of this scope.
 	ts := FormatTimestamp(m.Timestamp)
-// L109: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Room tag inserted between timestamp and type keyword for all types except MsgServerEvent
 // L110: Creates `roomTag` as a new local binding so later lines can reuse this computed value.
 	roomTag := ""
@@ -596,9 +538,7 @@ func (m Message) FormatLogLine() string {
 	}
 // L136: Closes the current block and returns control to the surrounding scope.
 }
-// L137: Blank line that separates logical sections and keeps the file readable.
 
-// L138: Source comment carried through from the code; it documents intent for the lines that follow.
 // ParseLogLine reconstructs a Message from a log line produced by FormatLogLine.
 // L139: Declares the `ParseLogLine` function, which starts a named unit of behavior other code can call.
 func ParseLogLine(line string) (Message, error) {
@@ -610,7 +550,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{}, fmt.Errorf("empty line")
 // L143: Closes the current block and returns control to the surrounding scope.
 	}
-// L144: Blank line that separates logical sections and keeps the file readable.
 
 // L145: Evaluates `line[0] != '['` and enters the guarded branch only when that condition holds.
 	if line[0] != '[' {
@@ -626,7 +565,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{}, fmt.Errorf("invalid format: malformed timestamp")
 // L151: Closes the current block and returns control to the surrounding scope.
 	}
-// L152: Blank line that separates logical sections and keeps the file readable.
 
 // L153: Creates `tsStr` as a new local binding so later lines can reuse this computed value.
 	tsStr := line[1:closeBracket]
@@ -642,9 +580,7 @@ func ParseLogLine(line string) (Message, error) {
 	}
 // L159: Creates `ts` from the result of `time.Date`, capturing fresh state for the rest of this scope.
 	ts := time.Date(year, time.Month(month), day, hour, min, sec, 0, time.Local)
-// L160: Blank line that separates logical sections and keeps the file readable.
 
-// L161: Source comment carried through from the code; it documents intent for the lines that follow.
 	// After "] " comes an optional @room tag then the type keyword
 // L162: Evaluates `closeBracket+2 >= len(line)` and enters the guarded branch only when that condition holds.
 	if closeBracket+2 >= len(line) {
@@ -654,9 +590,7 @@ func ParseLogLine(line string) (Message, error) {
 	}
 // L165: Creates `rest` as a new local binding so later lines can reuse this computed value.
 	rest := line[closeBracket+2:]
-// L166: Blank line that separates logical sections and keeps the file readable.
 
-// L167: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Extract optional room tag
 // L168: Declares `room` in the current scope so later lines can fill or mutate it as needed.
 	var room string
@@ -676,7 +610,6 @@ func ParseLogLine(line string) (Message, error) {
 		rest = rest[spaceIdx+1:]
 // L176: Closes the current block and returns control to the surrounding scope.
 	}
-// L177: Blank line that separates logical sections and keeps the file readable.
 
 // L178: Evaluates `strings.HasPrefix(rest, "CHAT ")` and enters the guarded branch only when that condition holds.
 	if strings.HasPrefix(rest, "CHAT ") {
@@ -704,7 +637,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{Timestamp: ts, Type: MsgChat, Sender: sender, Content: content, Room: room}, nil
 // L190: Closes the current block and returns control to the surrounding scope.
 	}
-// L191: Blank line that separates logical sections and keeps the file readable.
 
 // L192: Evaluates `strings.HasPrefix(rest, "JOIN ")` and enters the guarded branch only when that condition holds.
 	if strings.HasPrefix(rest, "JOIN ") {
@@ -714,7 +646,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{Timestamp: ts, Type: MsgJoin, Sender: sender, Room: room}, nil
 // L195: Closes the current block and returns control to the surrounding scope.
 	}
-// L196: Blank line that separates logical sections and keeps the file readable.
 
 // L197: Evaluates `strings.HasPrefix(rest, "LEAVE ")` and enters the guarded branch only when that condition holds.
 	if strings.HasPrefix(rest, "LEAVE ") {
@@ -732,7 +663,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{Timestamp: ts, Type: MsgLeave, Sender: parts[:idx], Extra: parts[idx+1:], Room: room}, nil
 // L204: Closes the current block and returns control to the surrounding scope.
 	}
-// L205: Blank line that separates logical sections and keeps the file readable.
 
 // L206: Evaluates `strings.HasPrefix(rest, "NAMECHANGE ")` and enters the guarded branch only when that condition holds.
 	if strings.HasPrefix(rest, "NAMECHANGE ") {
@@ -750,7 +680,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{Timestamp: ts, Type: MsgNameChange, Sender: parts[idx+1:], Extra: parts[:idx], Room: room}, nil
 // L213: Closes the current block and returns control to the surrounding scope.
 	}
-// L214: Blank line that separates logical sections and keeps the file readable.
 
 // L215: Evaluates `strings.HasPrefix(rest, "ANNOUNCE ")` and enters the guarded branch only when that condition holds.
 	if strings.HasPrefix(rest, "ANNOUNCE ") {
@@ -778,7 +707,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{Timestamp: ts, Type: MsgAnnouncement, Content: content, Extra: announcer, Room: room}, nil
 // L227: Closes the current block and returns control to the surrounding scope.
 	}
-// L228: Blank line that separates logical sections and keeps the file readable.
 
 // L229: Evaluates `strings.HasPrefix(rest, "MOD ")` and enters the guarded branch only when that condition holds.
 	if strings.HasPrefix(rest, "MOD ") {
@@ -794,7 +722,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{Timestamp: ts, Type: MsgModeration, Content: fields[0], Sender: fields[1], Extra: fields[2], Room: room}, nil
 // L235: Closes the current block and returns control to the surrounding scope.
 	}
-// L236: Blank line that separates logical sections and keeps the file readable.
 
 // L237: Evaluates `strings.HasPrefix(rest, "SERVER ")` and enters the guarded branch only when that condition holds.
 	if strings.HasPrefix(rest, "SERVER ") {
@@ -802,7 +729,6 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{Timestamp: ts, Type: MsgServerEvent, Content: rest[7:]}, nil
 // L239: Closes the current block and returns control to the surrounding scope.
 	}
-// L240: Blank line that separates logical sections and keeps the file readable.
 
 // L241: Returns the listed values to the caller, ending the current function at this point.
 	return Message{}, fmt.Errorf("unknown log line type")
@@ -817,7 +743,6 @@ Owns append-only daily log files, synchronized writes, and day-rollover handling
 ```go
 // L1: Declares `logger` as the package for this directory so the compiler groups this file with the rest of that package.
 package logger
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -835,11 +760,8 @@ import (
 	"time"
 // L10: Closes the import block after listing all package dependencies.
 )
-// L11: Blank line that separates logical sections and keeps the file readable.
 
-// L12: Source comment carried through from the code; it documents intent for the lines that follow.
 // Logger writes chat events to daily log files in a thread-safe manner.
-// L13: Source comment carried through from the code; it documents intent for the lines that follow.
 // All methods are nil-safe: calling any method on a nil Logger is a no-op.
 // L14: Defines the `Logger` struct, which groups related state that this package manages together.
 type Logger struct {
@@ -855,11 +777,8 @@ type Logger struct {
 	closed  bool
 // L20: Closes the struct definition after listing all of its fields.
 }
-// L21: Blank line that separates logical sections and keeps the file readable.
 
-// L22: Source comment carried through from the code; it documents intent for the lines that follow.
 // New creates a Logger that writes to the given directory.
-// L23: Source comment carried through from the code; it documents intent for the lines that follow.
 // Creates the directory if it does not exist.
 // L24: Declares the `New` function, which starts a named unit of behavior other code can call.
 func New(logsDir string) (*Logger, error) {
@@ -873,11 +792,8 @@ func New(logsDir string) (*Logger, error) {
 	return &Logger{logsDir: logsDir}, nil
 // L29: Closes the current block and returns control to the surrounding scope.
 }
-// L30: Blank line that separates logical sections and keeps the file readable.
 
-// L31: Source comment carried through from the code; it documents intent for the lines that follow.
 // Log writes a message to the daily log file. Thread-safe and nil-safe.
-// L32: Source comment carried through from the code; it documents intent for the lines that follow.
 // After Close is called, Log is a no-op (prevents file reopening by late goroutines).
 // L33: Declares the `Log` method on `l *Logger`, creating a reusable behavior entrypoint tied to that receiver state.
 func (l *Logger) Log(msg models.Message) {
@@ -891,7 +807,6 @@ func (l *Logger) Log(msg models.Message) {
 	l.mu.Lock()
 // L38: Schedules this cleanup or follow-up call to run when the current function returns.
 	defer l.mu.Unlock()
-// L39: Blank line that separates logical sections and keeps the file readable.
 
 // L40: Evaluates `l.closed` and enters the guarded branch only when that condition holds.
 	if l.closed {
@@ -899,7 +814,6 @@ func (l *Logger) Log(msg models.Message) {
 		return
 // L42: Closes the current block and returns control to the surrounding scope.
 	}
-// L43: Blank line that separates logical sections and keeps the file readable.
 
 // L44: Creates `date` from the result of `formatDate`, capturing fresh state for the rest of this scope.
 	date := formatDate(msg.Timestamp)
@@ -911,7 +825,6 @@ func (l *Logger) Log(msg models.Message) {
 		return
 // L48: Closes the current block and returns control to the surrounding scope.
 	}
-// L49: Blank line that separates logical sections and keeps the file readable.
 
 // L50: Creates `line` from the result of `msg.FormatLogLine`, capturing fresh state for the rest of this scope.
 	line := msg.FormatLogLine() + "\n"
@@ -923,9 +836,7 @@ func (l *Logger) Log(msg models.Message) {
 	}
 // L54: Closes the current block and returns control to the surrounding scope.
 }
-// L55: Blank line that separates logical sections and keeps the file readable.
 
-// L56: Source comment carried through from the code; it documents intent for the lines that follow.
 // FilePath returns the log file path for the given date string (YYYY-MM-DD).
 // L57: Declares the `FilePath` method on `l *Logger`, creating a reusable behavior entrypoint tied to that receiver state.
 func (l *Logger) FilePath(date string) string {
@@ -939,9 +850,7 @@ func (l *Logger) FilePath(date string) string {
 	return filepath.Join(l.logsDir, "chat_"+date+".log")
 // L62: Closes the current block and returns control to the surrounding scope.
 }
-// L63: Blank line that separates logical sections and keeps the file readable.
 
-// L64: Source comment carried through from the code; it documents intent for the lines that follow.
 // Dir returns the logs directory path.
 // L65: Declares the `Dir` method on `l *Logger`, creating a reusable behavior entrypoint tied to that receiver state.
 func (l *Logger) Dir() string {
@@ -955,9 +864,7 @@ func (l *Logger) Dir() string {
 	return l.logsDir
 // L70: Closes the current block and returns control to the surrounding scope.
 }
-// L71: Blank line that separates logical sections and keeps the file readable.
 
-// L72: Source comment carried through from the code; it documents intent for the lines that follow.
 // Close closes the current log file and prevents future writes. Nil-safe.
 // L73: Declares the `Close` method on `l *Logger`, creating a reusable behavior entrypoint tied to that receiver state.
 func (l *Logger) Close() error {
@@ -987,9 +894,7 @@ func (l *Logger) Close() error {
 	return nil
 // L86: Closes the current block and returns control to the surrounding scope.
 }
-// L87: Blank line that separates logical sections and keeps the file readable.
 
-// L88: Source comment carried through from the code; it documents intent for the lines that follow.
 // FormatDate returns a date string formatted as YYYY-MM-DD for the given time.
 // L89: Declares the `FormatDate` function, which starts a named unit of behavior other code can call.
 func FormatDate(t time.Time) string {
@@ -997,7 +902,6 @@ func FormatDate(t time.Time) string {
 	return formatDate(t)
 // L91: Closes the current block and returns control to the surrounding scope.
 }
-// L92: Blank line that separates logical sections and keeps the file readable.
 
 // L93: Declares the `ensureFile` method on `l *Logger`, creating a reusable behavior entrypoint tied to that receiver state.
 func (l *Logger) ensureFile(date string) error {
@@ -1033,7 +937,6 @@ func (l *Logger) ensureFile(date string) error {
 	return nil
 // L109: Closes the current block and returns control to the surrounding scope.
 }
-// L110: Blank line that separates logical sections and keeps the file readable.
 
 // L111: Declares the `formatDate` function, which starts a named unit of behavior other code can call.
 func formatDate(t time.Time) string {
@@ -1050,7 +953,6 @@ Wraps each network connection with serialized output, interactive input tracking
 ```go
 // L1: Declares `client` as the package for this directory so the compiler groups this file with the rest of that package.
 package client
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -1066,7 +968,6 @@ import (
 	"time"
 // L9: Closes the import block after listing all package dependencies.
 )
-// L10: Blank line that separates logical sections and keeps the file readable.
 
 // L11: Starts a constant block for related immutable values used throughout this file.
 const (
@@ -1078,9 +979,7 @@ const (
 	maxInteractiveBuf = 4096   // max partial input tracked for redraw
 // L15: Closes the grouped declaration block.
 )
-// L16: Blank line that separates logical sections and keeps the file readable.
 
-// L17: Source comment carried through from the code; it documents intent for the lines that follow.
 // Write-message types for the writeLoop channel.
 // L18: Starts a constant block for related immutable values used throughout this file.
 const (
@@ -1096,9 +995,7 @@ const (
 	wmNewline         // clear inputBuf/prompt, write \r\n
 // L24: Closes the grouped declaration block.
 )
-// L25: Blank line that separates logical sections and keeps the file readable.
 
-// L26: Source comment carried through from the code; it documents intent for the lines that follow.
 // writeMsg is the internal message type for the write channel.
 // L27: Defines the `writeMsg` struct, which groups related state that this package manages together.
 type writeMsg struct {
@@ -1108,9 +1005,7 @@ type writeMsg struct {
 	msgType int
 // L30: Closes the struct definition after listing all of its fields.
 }
-// L31: Blank line that separates logical sections and keeps the file readable.
 
-// L32: Source comment carried through from the code; it documents intent for the lines that follow.
 // Client represents a single connected user with its own write goroutine.
 // L33: Defines the `Client` struct, which groups related state that this package manages together.
 type Client struct {
@@ -1124,11 +1019,8 @@ type Client struct {
 	IP       string
 // L38: Adds the `Room` field to the struct so instances can hold that piece of state.
 	Room     string
-// L39: Blank line that separates logical sections and keeps the file readable.
 
-// L40: Source comment carried through from the code; it documents intent for the lines that follow.
 	// lastActivity, muted, admin are accessed from multiple goroutines (handler,
-// L41: Source comment carried through from the code; it documents intent for the lines that follow.
 	// operator, heartbeat) — protected by mu alongside lastInput et al.
 // L42: Adds the `lastActivity` field to the struct so instances can hold that piece of state.
 	lastActivity time.Time
@@ -1136,7 +1028,6 @@ type Client struct {
 	muted        bool
 // L44: Adds the `admin` field to the struct so instances can hold that piece of state.
 	admin        bool
-// L45: Blank line that separates logical sections and keeps the file readable.
 
 // L46: Adds the `msgChan` field to the struct so instances can hold that piece of state.
 	msgChan   chan writeMsg
@@ -1146,13 +1037,9 @@ type Client struct {
 	closeOnce sync.Once
 // L49: Adds the `scanner` field to the struct so instances can hold that piece of state.
 	scanner   *bufio.Scanner
-// L50: Blank line that separates logical sections and keeps the file readable.
 
-// L51: Source comment carried through from the code; it documents intent for the lines that follow.
 	// mu protects fields accessed concurrently by multiple goroutines (handler,
-// L52: Source comment carried through from the code; it documents intent for the lines that follow.
 	// operator, heartbeat): lastInput, disconnectReason, echoMode, lastActivity,
-// L53: Source comment carried through from the code; it documents intent for the lines that follow.
 	// muted, and admin.
 // L54: Adds the `mu` field to the struct so instances can hold that piece of state.
 	mu               sync.Mutex
@@ -1162,25 +1049,19 @@ type Client struct {
 	disconnectReason string
 // L57: Adds the `echoMode` field to the struct so instances can hold that piece of state.
 	echoMode         bool // true after onboarding; enables input continuity
-// L58: Blank line that separates logical sections and keeps the file readable.
 
-// L59: Source comment carried through from the code; it documents intent for the lines that follow.
 	// The following fields are ONLY accessed by the writeLoop goroutine:
 // L60: Adds the `inputBuf` field to the struct so instances can hold that piece of state.
 	inputBuf []byte // partial input typed so far (server-side tracking)
 // L61: Adds the `prompt` field to the struct so instances can hold that piece of state.
 	prompt   string // current prompt string for redraw
-// L62: Blank line that separates logical sections and keeps the file readable.
 
-// L63: Source comment carried through from the code; it documents intent for the lines that follow.
 	// skipLF is ONLY accessed by the handler goroutine (ReadLineInteractive):
 // L64: Adds the `skipLF` field to the struct so instances can hold that piece of state.
 	skipLF bool // skip next \n after \r (for \r\n handling)
 // L65: Closes the struct definition after listing all of its fields.
 }
-// L66: Blank line that separates logical sections and keeps the file readable.
 
-// L67: Source comment carried through from the code; it documents intent for the lines that follow.
 // NewClient wraps a connection and starts the background write goroutine.
 // L68: Declares the `NewClient` function, which starts a named unit of behavior other code can call.
 func NewClient(conn net.Conn) *Client {
@@ -1208,9 +1089,7 @@ func NewClient(conn net.Conn) *Client {
 	return c
 // L80: Closes the current block and returns control to the surrounding scope.
 }
-// L81: Blank line that separates logical sections and keeps the file readable.
 
-// L82: Source comment carried through from the code; it documents intent for the lines that follow.
 // Send enqueues a message for delivery. Non-blocking: drops if channel is full.
 // L83: Declares the `Send` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) Send(msg string) {
@@ -1218,11 +1097,8 @@ func (c *Client) Send(msg string) {
 	c.enqueue(writeMsg{data: msg, msgType: wmMessage})
 // L85: Closes the current block and returns control to the surrounding scope.
 }
-// L86: Blank line that separates logical sections and keeps the file readable.
 
-// L87: Source comment carried through from the code; it documents intent for the lines that follow.
 // SendPrompt enqueues a prompt message and tells the writeLoop to update the
-// L88: Source comment carried through from the code; it documents intent for the lines that follow.
 // tracked prompt (clears inputBuf). Used after the client submits a line.
 // L89: Declares the `SendPrompt` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) SendPrompt(prompt string) {
@@ -1230,7 +1106,6 @@ func (c *Client) SendPrompt(prompt string) {
 	c.enqueue(writeMsg{data: prompt, msgType: wmPrompt})
 // L91: Closes the current block and returns control to the surrounding scope.
 }
-// L92: Blank line that separates logical sections and keeps the file readable.
 
 // L93: Declares the `enqueue` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) enqueue(m writeMsg) {
@@ -1252,17 +1127,13 @@ func (c *Client) enqueue(m writeMsg) {
 	case <-c.done:
 // L102: Defines the fallback branch used when no earlier case matches or no channel operation is ready.
 	default:
-// L103: Source comment carried through from the code; it documents intent for the lines that follow.
 		// channel full – drop for this client to protect others
 // L104: Closes the current block and returns control to the surrounding scope.
 	}
 // L105: Closes the current block and returns control to the surrounding scope.
 }
-// L106: Blank line that separates logical sections and keeps the file readable.
 
-// L107: Source comment carried through from the code; it documents intent for the lines that follow.
 // ReadLine blocks until a full line is available. Strips \r\n → content only.
-// L108: Source comment carried through from the code; it documents intent for the lines that follow.
 // Used during onboarding (before echoMode is enabled).
 // L109: Declares the `ReadLine` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) ReadLine() (string, error) {
@@ -1282,9 +1153,7 @@ func (c *Client) ReadLine() (string, error) {
 	return "", io.EOF
 // L117: Closes the current block and returns control to the surrounding scope.
 }
-// L118: Blank line that separates logical sections and keeps the file readable.
 
-// L119: Source comment carried through from the code; it documents intent for the lines that follow.
 // Close tears down the connection and stops the write goroutine. Safe to call multiple times.
 // L120: Declares the `Close` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) Close() {
@@ -1298,9 +1167,7 @@ func (c *Client) Close() {
 	})
 // L125: Closes the current block and returns control to the surrounding scope.
 }
-// L126: Blank line that separates logical sections and keeps the file readable.
 
-// L127: Source comment carried through from the code; it documents intent for the lines that follow.
 // IsClosed reports whether Close has been called.
 // L128: Declares the `IsClosed` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) IsClosed() bool {
@@ -1318,9 +1185,7 @@ func (c *Client) IsClosed() bool {
 	}
 // L135: Closes the current block and returns control to the surrounding scope.
 }
-// L136: Blank line that separates logical sections and keeps the file readable.
 
-// L137: Source comment carried through from the code; it documents intent for the lines that follow.
 // Done returns a channel that is closed when the client is shutting down.
 // L138: Declares the `Done` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) Done() <-chan struct{} {
@@ -1328,13 +1193,9 @@ func (c *Client) Done() <-chan struct{} {
 	return c.done
 // L140: Closes the current block and returns control to the surrounding scope.
 }
-// L141: Blank line that separates logical sections and keeps the file readable.
 
-// L142: Source comment carried through from the code; it documents intent for the lines that follow.
 // ResetScanner creates a fresh scanner for the connection.
-// L143: Source comment carried through from the code; it documents intent for the lines that follow.
 // Used after queue admission where the scanner may be in an error state
-// L144: Source comment carried through from the code; it documents intent for the lines that follow.
 // due to a read deadline used to cancel the monitoring goroutine.
 // L145: Declares the `ResetScanner` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) ResetScanner() {
@@ -1346,9 +1207,7 @@ func (c *Client) ResetScanner() {
 	c.scanner = scanner
 // L149: Closes the current block and returns control to the surrounding scope.
 }
-// L150: Blank line that separates logical sections and keeps the file readable.
 
-// L151: Source comment carried through from the code; it documents intent for the lines that follow.
 // SetLastInput records the time the client last sent any data (for heartbeat tracking).
 // L152: Declares the `SetLastInput` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) SetLastInput(t time.Time) {
@@ -1360,9 +1219,7 @@ func (c *Client) SetLastInput(t time.Time) {
 	c.mu.Unlock()
 // L156: Closes the current block and returns control to the surrounding scope.
 }
-// L157: Blank line that separates logical sections and keeps the file readable.
 
-// L158: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetLastInput returns the time the client last sent any data.
 // L159: Declares the `GetLastInput` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) GetLastInput() time.Time {
@@ -1374,11 +1231,8 @@ func (c *Client) GetLastInput() time.Time {
 	return c.lastInput
 // L163: Closes the current block and returns control to the surrounding scope.
 }
-// L164: Blank line that separates logical sections and keeps the file readable.
 
-// L165: Source comment carried through from the code; it documents intent for the lines that follow.
 // SetDisconnectReason atomically sets the disconnect reason if not already set.
-// L166: Source comment carried through from the code; it documents intent for the lines that follow.
 // Used to distinguish voluntary, dropped, kicked, and banned disconnects.
 // L167: Declares the `SetDisconnectReason` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) SetDisconnectReason(reason string) {
@@ -1394,9 +1248,7 @@ func (c *Client) SetDisconnectReason(reason string) {
 	c.mu.Unlock()
 // L173: Closes the current block and returns control to the surrounding scope.
 }
-// L174: Blank line that separates logical sections and keeps the file readable.
 
-// L175: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetDisconnectReason returns the current disconnect reason.
 // L176: Declares the `GetDisconnectReason` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) GetDisconnectReason() string {
@@ -1408,9 +1260,7 @@ func (c *Client) GetDisconnectReason() string {
 	return c.disconnectReason
 // L180: Closes the current block and returns control to the surrounding scope.
 }
-// L181: Blank line that separates logical sections and keeps the file readable.
 
-// L182: Source comment carried through from the code; it documents intent for the lines that follow.
 // ForceDisconnectReason sets the disconnect reason unconditionally (for moderation).
 // L183: Declares the `ForceDisconnectReason` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) ForceDisconnectReason(reason string) {
@@ -1422,9 +1272,7 @@ func (c *Client) ForceDisconnectReason(reason string) {
 	c.mu.Unlock()
 // L187: Closes the current block and returns control to the surrounding scope.
 }
-// L188: Blank line that separates logical sections and keeps the file readable.
 
-// L189: Source comment carried through from the code; it documents intent for the lines that follow.
 // SetLastActivity records the time the client last sent a chat message.
 // L190: Declares the `SetLastActivity` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) SetLastActivity(t time.Time) {
@@ -1436,9 +1284,7 @@ func (c *Client) SetLastActivity(t time.Time) {
 	c.mu.Unlock()
 // L194: Closes the current block and returns control to the surrounding scope.
 }
-// L195: Blank line that separates logical sections and keeps the file readable.
 
-// L196: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetLastActivity returns the time the client last sent a chat message.
 // L197: Declares the `GetLastActivity` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) GetLastActivity() time.Time {
@@ -1450,9 +1296,7 @@ func (c *Client) GetLastActivity() time.Time {
 	return c.lastActivity
 // L201: Closes the current block and returns control to the surrounding scope.
 }
-// L202: Blank line that separates logical sections and keeps the file readable.
 
-// L203: Source comment carried through from the code; it documents intent for the lines that follow.
 // SetMuted sets whether the client is muted.
 // L204: Declares the `SetMuted` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) SetMuted(v bool) {
@@ -1464,9 +1308,7 @@ func (c *Client) SetMuted(v bool) {
 	c.mu.Unlock()
 // L208: Closes the current block and returns control to the surrounding scope.
 }
-// L209: Blank line that separates logical sections and keeps the file readable.
 
-// L210: Source comment carried through from the code; it documents intent for the lines that follow.
 // IsMuted reports whether the client is muted.
 // L211: Declares the `IsMuted` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) IsMuted() bool {
@@ -1478,9 +1320,7 @@ func (c *Client) IsMuted() bool {
 	return c.muted
 // L215: Closes the current block and returns control to the surrounding scope.
 }
-// L216: Blank line that separates logical sections and keeps the file readable.
 
-// L217: Source comment carried through from the code; it documents intent for the lines that follow.
 // SetAdmin sets whether the client has admin privileges.
 // L218: Declares the `SetAdmin` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) SetAdmin(v bool) {
@@ -1492,9 +1332,7 @@ func (c *Client) SetAdmin(v bool) {
 	c.mu.Unlock()
 // L222: Closes the current block and returns control to the surrounding scope.
 }
-// L223: Blank line that separates logical sections and keeps the file readable.
 
-// L224: Source comment carried through from the code; it documents intent for the lines that follow.
 // IsAdmin reports whether the client has admin privileges.
 // L225: Declares the `IsAdmin` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) IsAdmin() bool {
@@ -1506,17 +1344,11 @@ func (c *Client) IsAdmin() bool {
 	return c.admin
 // L229: Closes the current block and returns control to the surrounding scope.
 }
-// L230: Blank line that separates logical sections and keeps the file readable.
 
-// L231: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- writeLoop: single goroutine responsible for all Conn writes ----------
-// L232: Blank line that separates logical sections and keeps the file readable.
 
-// L233: Source comment carried through from the code; it documents intent for the lines that follow.
 // writeLoop drains the message channel and writes to the connection.
-// L234: Source comment carried through from the code; it documents intent for the lines that follow.
 // It is the sole writer to Conn (except heartbeat null-byte probes).
-// L235: Source comment carried through from the code; it documents intent for the lines that follow.
 // In echoMode it preserves the client's partial input across incoming messages.
 // L236: Declares the `writeLoop` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) writeLoop() {
@@ -1532,11 +1364,9 @@ func (c *Client) writeLoop() {
 			echo := c.echoMode
 // L242: Calls `c.mu.Unlock` here for its side effects or returned value in the surrounding control flow.
 			c.mu.Unlock()
-// L243: Blank line that separates logical sections and keeps the file readable.
 
 // L244: Evaluates `!echo` and enters the guarded branch only when that condition holds.
 			if !echo {
-// L245: Source comment carried through from the code; it documents intent for the lines that follow.
 				// Pre-onboarding: raw write
 // L246: Evaluates `_, err := c.Conn.Write([]byte(msg.data)); err != nil` and enters the guarded branch only when that condition holds.
 				if _, err := c.Conn.Write([]byte(msg.data)); err != nil {
@@ -1548,9 +1378,7 @@ func (c *Client) writeLoop() {
 				continue
 // L250: Closes the current block and returns control to the surrounding scope.
 			}
-// L251: Blank line that separates logical sections and keeps the file readable.
 
-// L252: Source comment carried through from the code; it documents intent for the lines that follow.
 			// echoMode active: handle by message type
 // L253: Starts a switch on `msg.msgType` so the following cases can branch on that value cleanly.
 			switch msg.msgType {
@@ -1600,15 +1428,10 @@ func (c *Client) writeLoop() {
 	}
 // L276: Closes the current block and returns control to the surrounding scope.
 }
-// L277: Blank line that separates logical sections and keeps the file readable.
 
-// L278: Source comment carried through from the code; it documents intent for the lines that follow.
 // writeWithContinuity clears the current prompt+input line, writes the message,
-// L279: Source comment carried through from the code; it documents intent for the lines that follow.
 // then redraws the prompt and partial input. All output is batched into a single
-// L280: Source comment carried through from the code; it documents intent for the lines that follow.
 // Conn.Write to avoid partial-write blocking on synchronous pipes. Only called
-// L281: Source comment carried through from the code; it documents intent for the lines that follow.
 // from writeLoop.
 // L282: Declares the `writeWithContinuity` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) writeWithContinuity(msg string) {
@@ -1616,9 +1439,7 @@ func (c *Client) writeWithContinuity(msg string) {
 	hasPrompt := len(c.prompt) > 0
 // L284: Creates `hasInput` from the result of `len`, capturing fresh state for the rest of this scope.
 	hasInput := len(c.inputBuf) > 0
-// L285: Blank line that separates logical sections and keeps the file readable.
 
-// L286: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Pre-calculate total size for a single allocation
 // L287: Creates `size` from the result of `len`, capturing fresh state for the rest of this scope.
 	size := len(msg)
@@ -1640,7 +1461,6 @@ func (c *Client) writeWithContinuity(msg string) {
 		size += len(c.inputBuf)
 // L296: Closes the current block and returns control to the surrounding scope.
 	}
-// L297: Blank line that separates logical sections and keeps the file readable.
 
 // L298: Creates `buf` from the result of `make`, capturing fresh state for the rest of this scope.
 	buf := make([]byte, 0, size)
@@ -1670,13 +1490,9 @@ func (c *Client) writeWithContinuity(msg string) {
 	c.Conn.Write(buf)
 // L311: Closes the current block and returns control to the surrounding scope.
 }
-// L312: Blank line that separates logical sections and keeps the file readable.
 
-// L313: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- echo mode & interactive reading ----------
-// L314: Blank line that separates logical sections and keeps the file readable.
 
-// L315: Source comment carried through from the code; it documents intent for the lines that follow.
 // SetEchoMode enables character-at-a-time input handling with input continuity.
 // L316: Declares the `SetEchoMode` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) SetEchoMode(enabled bool) {
@@ -1688,15 +1504,10 @@ func (c *Client) SetEchoMode(enabled bool) {
 	c.mu.Unlock()
 // L320: Closes the current block and returns control to the surrounding scope.
 }
-// L321: Blank line that separates logical sections and keeps the file readable.
 
-// L322: Source comment carried through from the code; it documents intent for the lines that follow.
 // ReadLineInteractive reads input byte-by-byte, sending echo/backspace/newline
-// L323: Source comment carried through from the code; it documents intent for the lines that follow.
 // commands through the writeLoop channel. This avoids direct Conn writes from
-// L324: Source comment carried through from the code; it documents intent for the lines that follow.
 // the handler goroutine, preventing deadlocks with synchronous pipes.
-// L325: Source comment carried through from the code; it documents intent for the lines that follow.
 // Returns the complete line (without newline) when Enter is pressed.
 // L326: Declares the `ReadLineInteractive` method on `c *Client`, creating a reusable behavior entrypoint tied to that receiver state.
 func (c *Client) ReadLineInteractive() (string, error) {
@@ -1722,9 +1533,7 @@ func (c *Client) ReadLineInteractive() (string, error) {
 		}
 // L337: Creates `b` as a new local binding so later lines can reuse this computed value.
 		b := buf[0]
-// L338: Blank line that separates logical sections and keeps the file readable.
 
-// L339: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Handle \r\n: after \r we skip the next \n
 // L340: Evaluates `c.skipLF && b == '\n'` and enters the guarded branch only when that condition holds.
 		if c.skipLF && b == '\n' {
@@ -1736,7 +1545,6 @@ func (c *Client) ReadLineInteractive() (string, error) {
 		}
 // L344: Updates `c.skipLF` so subsequent logic sees the new state.
 		c.skipLF = false
-// L345: Blank line that separates logical sections and keeps the file readable.
 
 // L346: Starts a switch on `` so the following cases can branch on that value cleanly.
 		switch {
@@ -1748,7 +1556,6 @@ func (c *Client) ReadLineInteractive() (string, error) {
 			c.enqueue(writeMsg{msgType: wmNewline})
 // L350: Returns the listed values to the caller, ending the current function at this point.
 			return string(line), nil
-// L351: Blank line that separates logical sections and keeps the file readable.
 
 // L352: Selects the `b == '\n'` branch inside the surrounding switch or select.
 		case b == '\n':
@@ -1756,7 +1563,6 @@ func (c *Client) ReadLineInteractive() (string, error) {
 			c.enqueue(writeMsg{msgType: wmNewline})
 // L354: Returns the listed values to the caller, ending the current function at this point.
 			return string(line), nil
-// L355: Blank line that separates logical sections and keeps the file readable.
 
 // L356: Selects the `b == 0x7F || b == 0x08: // Backspace / Delete` branch inside the surrounding switch or select.
 		case b == 0x7F || b == 0x08: // Backspace / Delete
@@ -1768,13 +1574,11 @@ func (c *Client) ReadLineInteractive() (string, error) {
 				c.enqueue(writeMsg{msgType: wmBackspace})
 // L360: Closes the current block and returns control to the surrounding scope.
 			}
-// L361: Blank line that separates logical sections and keeps the file readable.
 
 // L362: Selects the `b == 0x00: // Null byte from heartbeat probe — ignore` branch inside the surrounding switch or select.
 		case b == 0x00: // Null byte from heartbeat probe — ignore
 // L363: Skips the rest of the current loop iteration and starts the next iteration immediately.
 			continue
-// L364: Blank line that separates logical sections and keeps the file readable.
 
 // L365: Selects the `b >= 0x20 && b <= 0x7E: // Printable ASCII` branch inside the surrounding switch or select.
 		case b >= 0x20 && b <= 0x7E: // Printable ASCII
@@ -1782,11 +1586,9 @@ func (c *Client) ReadLineInteractive() (string, error) {
 			line = append(line, b)
 // L367: Calls `c.enqueue` here for its side effects or returned value in the surrounding control flow.
 			c.enqueue(writeMsg{data: string([]byte{b}), msgType: wmEcho})
-// L368: Blank line that separates logical sections and keeps the file readable.
 
 // L369: Defines the fallback branch used when no earlier case matches or no channel operation is ready.
 		default:
-// L370: Source comment carried through from the code; it documents intent for the lines that follow.
 			// Non-printable control character — ignore
 // L371: Skips the rest of the current loop iteration and starts the next iteration immediately.
 			continue
@@ -1805,7 +1607,6 @@ Defines the top-level server state and orchestrates startup, acceptance, shutdow
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -1829,9 +1630,7 @@ import (
 	"time"
 // L13: Closes the import block after listing all package dependencies.
 )
-// L14: Blank line that separates logical sections and keeps the file readable.
 
-// L15: Source comment carried through from the code; it documents intent for the lines that follow.
 // QueueEntry represents a client waiting for a slot to open.
 // L16: Defines the `QueueEntry` struct, which groups related state that this package manages together.
 type QueueEntry struct {
@@ -1841,9 +1640,7 @@ type QueueEntry struct {
 	admit  chan struct{} // closed when the client is admitted
 // L19: Closes the struct definition after listing all of its fields.
 }
-// L20: Blank line that separates logical sections and keeps the file readable.
 
-// L21: Source comment carried through from the code; it documents intent for the lines that follow.
 // Server manages the TCP listener, connected clients, and chat history.
 // L22: Defines the `Server` struct, which groups related state that this package manages together.
 type Server struct {
@@ -1873,31 +1670,23 @@ type Server struct {
 	ShutdownTimeout time.Duration // defaults to 5s; override in tests for faster execution
 // L35: Adds the `Logger` field to the struct so instances can hold that piece of state.
 	Logger          *logger.Logger
-// L36: Blank line that separates logical sections and keeps the file readable.
 
-// L37: Source comment carried through from the code; it documents intent for the lines that follow.
 	// IP-based moderation (protected by mu)
 // L38: Adds the `kickedIPs` field to the struct so instances can hold that piece of state.
 	kickedIPs map[string]time.Time // host IP -> cooldown expiry
 // L39: Adds the `bannedIPs` field to the struct so instances can hold that piece of state.
 	bannedIPs map[string]bool      // host IP -> banned for server session
-// L40: Blank line that separates logical sections and keeps the file readable.
 
-// L41: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Admin persistence
 // L42: Adds the `admins` field to the struct so instances can hold that piece of state.
 	admins     map[string]bool // known admin usernames, protected by mu
 // L43: Adds the `adminsFile` field to the struct so instances can hold that piece of state.
 	adminsFile string          // path to admins.json
-// L44: Blank line that separates logical sections and keeps the file readable.
 
-// L45: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Operator terminal output (defaults to os.Stdout)
 // L46: Adds the `OperatorOutput` field to the struct so instances can hold that piece of state.
 	OperatorOutput io.Writer
-// L47: Blank line that separates logical sections and keeps the file readable.
 
-// L48: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Heartbeat configuration (zero values use defaults: 10s interval, 5s timeout)
 // L49: Adds the `HeartbeatInterval` field to the struct so instances can hold that piece of state.
 	HeartbeatInterval time.Duration // how often to check idle clients (default 10s)
@@ -1905,9 +1694,7 @@ type Server struct {
 	HeartbeatTimeout  time.Duration // write probe deadline (default 5s)
 // L51: Closes the struct definition after listing all of its fields.
 }
-// L52: Blank line that separates logical sections and keeps the file readable.
 
-// L53: Source comment carried through from the code; it documents intent for the lines that follow.
 // New creates a server that will listen on the given port.
 // L54: Declares the `New` function, which starts a named unit of behavior other code can call.
 func New(port string) *Server {
@@ -1945,7 +1732,6 @@ func New(port string) *Server {
 		OperatorOutput: os.Stdout,
 // L71: Closes the current block and returns control to the surrounding scope.
 	}
-// L72: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Ensure the default room always exists
 // L73: Updates `s.rooms[s.DefaultRoom]` with the result of `newRoom`, replacing its previous value.
 	s.rooms[s.DefaultRoom] = newRoom(s.DefaultRoom)
@@ -1953,9 +1739,7 @@ func New(port string) *Server {
 	return s
 // L75: Closes the current block and returns control to the surrounding scope.
 }
-// L76: Blank line that separates logical sections and keeps the file readable.
 
-// L77: Source comment carried through from the code; it documents intent for the lines that follow.
 // Start opens the TCP listener and blocks in the accept loop until shutdown.
 // L78: Declares the `Start` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) Start() error {
@@ -1995,11 +1779,8 @@ func (s *Server) Start() error {
 	return nil
 // L96: Closes the current block and returns control to the surrounding scope.
 }
-// L97: Blank line that separates logical sections and keeps the file readable.
 
-// L98: Source comment carried through from the code; it documents intent for the lines that follow.
 // Shutdown sends the goodbye message, waits for clients to disconnect, then
-// L99: Source comment carried through from the code; it documents intent for the lines that follow.
 // force-closes remaining connections. Idempotent via sync.Once.
 // L100: Declares the `Shutdown` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) Shutdown() {
@@ -2007,9 +1788,7 @@ func (s *Server) Shutdown() {
 	s.shutdownOnce.Do(func() {
 // L102: Calls `close` here for its side effects or returned value in the surrounding control flow.
 		close(s.quit)
-// L103: Blank line that separates logical sections and keeps the file readable.
 
-// L104: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Stop accepting new connections
 // L105: Evaluates `s.listener != nil` and enters the guarded branch only when that condition holds.
 		if s.listener != nil {
@@ -2017,9 +1796,7 @@ func (s *Server) Shutdown() {
 			s.listener.Close()
 // L107: Closes the current block and returns control to the surrounding scope.
 		}
-// L108: Blank line that separates logical sections and keeps the file readable.
 
-// L109: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Send goodbye to ALL tracked connections (active, queued, and name-prompt)
 // L110: Calls `s.mu.RLock` here for its side effects or returned value in the surrounding control flow.
 		s.mu.RLock()
@@ -2031,9 +1808,7 @@ func (s *Server) Shutdown() {
 		}
 // L114: Calls `s.mu.RUnlock` here for its side effects or returned value in the surrounding control flow.
 		s.mu.RUnlock()
-// L115: Blank line that separates logical sections and keeps the file readable.
 
-// L116: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Wait up to ShutdownTimeout for clients to disconnect voluntarily
 // L117: Creates `timeout` as a new local binding so later lines can reuse this computed value.
 		timeout := s.ShutdownTimeout
@@ -2063,9 +1838,7 @@ func (s *Server) Shutdown() {
 			time.Sleep(50 * time.Millisecond)
 // L130: Closes the current block and returns control to the surrounding scope.
 		}
-// L131: Blank line that separates logical sections and keeps the file readable.
 
-// L132: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Force-close any remaining connections
 // L133: Calls `s.mu.RLock` here for its side effects or returned value in the surrounding control flow.
 		s.mu.RLock()
@@ -2077,15 +1850,11 @@ func (s *Server) Shutdown() {
 		}
 // L137: Calls `s.mu.RUnlock` here for its side effects or returned value in the surrounding control flow.
 		s.mu.RUnlock()
-// L138: Blank line that separates logical sections and keeps the file readable.
 
-// L139: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Wait for handler goroutine cleanup (leave logging, untracking)
 // L140: Calls `time.Sleep` here for its side effects or returned value in the surrounding control flow.
 		time.Sleep(200 * time.Millisecond)
-// L141: Blank line that separates logical sections and keeps the file readable.
 
-// L142: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Log shutdown synchronously — guaranteed before process exit
 // L143: Calls `s.Logger.Log` here for its side effects or returned value in the surrounding control flow.
 		s.Logger.Log(models.Message{
@@ -2099,7 +1868,6 @@ func (s *Server) Shutdown() {
 		})
 // L148: Calls `s.Logger.Close` here for its side effects or returned value in the surrounding control flow.
 		s.Logger.Close()
-// L149: Blank line that separates logical sections and keeps the file readable.
 
 // L150: Calls `close` here for its side effects or returned value in the surrounding control flow.
 		close(s.shutdownDone)
@@ -2107,7 +1875,6 @@ func (s *Server) Shutdown() {
 	})
 // L152: Closes the current block and returns control to the surrounding scope.
 }
-// L153: Blank line that separates logical sections and keeps the file readable.
 
 // L154: Declares the `acceptLoop` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) acceptLoop() {
@@ -2137,19 +1904,13 @@ func (s *Server) acceptLoop() {
 	}
 // L167: Closes the current block and returns control to the surrounding scope.
 }
-// L168: Blank line that separates logical sections and keeps the file readable.
 
-// L169: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- queue management ----------
-// L170: Blank line that separates logical sections and keeps the file readable.
 
-// L171: Source comment carried through from the code; it documents intent for the lines that follow.
 // MaxActiveClients is the maximum number of clients that can be actively chatting per room.
 // L172: Updates `const MaxActiveClients` so subsequent logic sees the new state.
 const MaxActiveClients = 10
-// L173: Blank line that separates logical sections and keeps the file readable.
 
-// L174: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetQueueLength returns the total number of queued clients across all rooms.
 // L175: Declares the `GetQueueLength` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetQueueLength() int {
@@ -2169,11 +1930,8 @@ func (s *Server) GetQueueLength() int {
 	return total
 // L183: Closes the current block and returns control to the surrounding scope.
 }
-// L184: Blank line that separates logical sections and keeps the file readable.
 
-// L185: Source comment carried through from the code; it documents intent for the lines that follow.
 // RemoveFromQueueByIP removes all queue entries across all rooms whose IP matches
-// L186: Source comment carried through from the code; it documents intent for the lines that follow.
 // the given address and returns their clients.
 // L187: Declares the `RemoveFromQueueByIP` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RemoveFromQueueByIP(ip string) []*client.Client {
@@ -2181,9 +1939,7 @@ func (s *Server) RemoveFromQueueByIP(ip string) []*client.Client {
 	return s.RemoveFromAllRoomQueuesByIP(ip)
 // L189: Closes the current block and returns control to the surrounding scope.
 }
-// L190: Blank line that separates logical sections and keeps the file readable.
 
-// L191: Source comment carried through from the code; it documents intent for the lines that follow.
 // IsShuttingDown reports whether the server is in the shutdown process.
 // L192: Declares the `IsShuttingDown` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) IsShuttingDown() bool {
@@ -2201,37 +1957,21 @@ func (s *Server) IsShuttingDown() bool {
 	}
 // L199: Closes the current block and returns control to the surrounding scope.
 }
-// L200: Blank line that separates logical sections and keeps the file readable.
 
-// L201: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- heartbeat ----------
-// L202: Blank line that separates logical sections and keeps the file readable.
 
-// L203: Source comment carried through from the code; it documents intent for the lines that follow.
 // startHeartbeat runs a per-client goroutine that periodically probes the connection
-// L204: Source comment carried through from the code; it documents intent for the lines that follow.
 // to detect dead/ghost clients. A null byte (\x00) write probe is used because it is
-// L205: Source comment carried through from the code; it documents intent for the lines that follow.
 // invisible to most terminal emulators (including netcat).
-// L206: Source comment carried through from the code; it documents intent for the lines that follow.
 //
-// L207: Source comment carried through from the code; it documents intent for the lines that follow.
 // The probe runs in a separate goroutine to avoid calling SetWriteDeadline, which
-// L208: Source comment carried through from the code; it documents intent for the lines that follow.
 // would interfere with the client's writeLoop. Instead, a timer detects whether the
-// L209: Source comment carried through from the code; it documents intent for the lines that follow.
 // probe completes in time:
-// L210: Source comment carried through from the code; it documents intent for the lines that follow.
 //   - If the write returns an error (io.ErrClosedPipe, ECONNRESET, etc.): dead client.
-// L211: Source comment carried through from the code; it documents intent for the lines that follow.
 //   - If the write doesn't complete within the timeout: slow/unstable — warn but keep alive.
-// L212: Source comment carried through from the code; it documents intent for the lines that follow.
 //   - If the write completes quickly: healthy connection.
-// L213: Source comment carried through from the code; it documents intent for the lines that follow.
 //
-// L214: Source comment carried through from the code; it documents intent for the lines that follow.
 // For real TCP connections, TCP keepalive (enabled in handleConnection) provides an
-// L215: Source comment carried through from the code; it documents intent for the lines that follow.
 // additional layer of dead peer detection at the OS level.
 // L216: Declares the `startHeartbeat` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) startHeartbeat(c *client.Client) {
@@ -2251,13 +1991,11 @@ func (s *Server) startHeartbeat(c *client.Client) {
 		timeout = 5 * time.Second
 // L224: Closes the current block and returns control to the surrounding scope.
 	}
-// L225: Blank line that separates logical sections and keeps the file readable.
 
 // L226: Creates `ticker` from the result of `time.NewTicker`, capturing fresh state for the rest of this scope.
 	ticker := time.NewTicker(interval)
 // L227: Schedules this cleanup or follow-up call to run when the current function returns.
 	defer ticker.Stop()
-// L228: Blank line that separates logical sections and keeps the file readable.
 
 // L229: Starts a loop controlled by ``, repeating until the loop condition or range is exhausted.
 	for {
@@ -2271,7 +2009,6 @@ func (s *Server) startHeartbeat(c *client.Client) {
 				return
 // L234: Closes the current block and returns control to the surrounding scope.
 			}
-// L235: Source comment carried through from the code; it documents intent for the lines that follow.
 			// Active sender exemption: client recently sent data, skip probe
 // L236: Evaluates `time.Since(c.GetLastInput()) < interval` and enters the guarded branch only when that condition holds.
 			if time.Since(c.GetLastInput()) < interval {
@@ -2279,9 +2016,7 @@ func (s *Server) startHeartbeat(c *client.Client) {
 				continue
 // L238: Closes the current block and returns control to the surrounding scope.
 			}
-// L239: Source comment carried through from the code; it documents intent for the lines that follow.
 			// Write probe in a goroutine to avoid blocking and to avoid
-// L240: Source comment carried through from the code; it documents intent for the lines that follow.
 			// calling SetWriteDeadline (which would interfere with writeLoop).
 // L241: Creates `probeResult` from the result of `make`, capturing fresh state for the rest of this scope.
 			probeResult := make(chan error, 1)
@@ -2295,7 +2030,6 @@ func (s *Server) startHeartbeat(c *client.Client) {
 				probeResult <- err
 // L246: Carries forward the surrounding declaration or expression with the exact value or syntax needed here.
 			}()
-// L247: Blank line that separates logical sections and keeps the file readable.
 
 // L248: Starts a channel select so the goroutine can react to whichever communication path becomes ready first.
 			select {
@@ -2305,7 +2039,6 @@ func (s *Server) startHeartbeat(c *client.Client) {
 				elapsed := time.Since(start)
 // L251: Evaluates `err != nil` and enters the guarded branch only when that condition holds.
 				if err != nil {
-// L252: Source comment carried through from the code; it documents intent for the lines that follow.
 					// Non-timeout write error — connection is truly broken
 // L253: Calls `c.SetDisconnectReason` here for its side effects or returned value in the surrounding control flow.
 					c.SetDisconnectReason("drop")
@@ -2315,7 +2048,6 @@ func (s *Server) startHeartbeat(c *client.Client) {
 					return
 // L256: Closes the current block and returns control to the surrounding scope.
 				}
-// L257: Source comment carried through from the code; it documents intent for the lines that follow.
 				// Write succeeded; warn if slow
 // L258: Evaluates `elapsed > timeout/2` and enters the guarded branch only when that condition holds.
 				if elapsed > timeout/2 {
@@ -2325,15 +2057,10 @@ func (s *Server) startHeartbeat(c *client.Client) {
 				}
 // L261: Selects the `<-time.After(timeout)` branch inside the surrounding switch or select.
 			case <-time.After(timeout):
-// L262: Source comment carried through from the code; it documents intent for the lines that follow.
 				// Write probe timed out — client is unresponsive.
-// L263: Source comment carried through from the code; it documents intent for the lines that follow.
 				// Per spec 11: "A client that fails to respond within 5 seconds
-// L264: Source comment carried through from the code; it documents intent for the lines that follow.
 				// of a health check is treated as disconnected." Disconnect now;
-// L265: Source comment carried through from the code; it documents intent for the lines that follow.
 				// the deferred cleanup in handleConnection handles leave broadcast,
-// L266: Source comment carried through from the code; it documents intent for the lines that follow.
 				// logging, and queue admission.
 // L267: Calls `c.SetDisconnectReason` here for its side effects or returned value in the surrounding control flow.
 				c.SetDisconnectReason("drop")
@@ -2365,19 +2092,12 @@ func (s *Server) startHeartbeat(c *client.Client) {
 	}
 // L281: Closes the current block and returns control to the surrounding scope.
 }
-// L282: Blank line that separates logical sections and keeps the file readable.
 
-// L283: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- midnight log rotation ----------
-// L284: Blank line that separates logical sections and keeps the file readable.
 
-// L285: Source comment carried through from the code; it documents intent for the lines that follow.
 // startMidnightWatcher runs a goroutine that detects day boundaries and resets
-// L286: Source comment carried through from the code; it documents intent for the lines that follow.
 // in-memory history at midnight. The logger already handles file switching based
-// L287: Source comment carried through from the code; it documents intent for the lines that follow.
 // on message timestamps (via ensureFile), so this only needs to clear the history
-// L288: Source comment carried through from the code; it documents intent for the lines that follow.
 // so that clients joining after midnight see only the new day's events.
 // L289: Declares the `startMidnightWatcher` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) startMidnightWatcher() {
@@ -2389,7 +2109,6 @@ func (s *Server) startMidnightWatcher() {
 		nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
 // L293: Creates `duration` from the result of `nextMidnight.Sub`, capturing fresh state for the rest of this scope.
 		duration := nextMidnight.Sub(now)
-// L294: Blank line that separates logical sections and keeps the file readable.
 
 // L295: Creates `timer` from the result of `time.NewTimer`, capturing fresh state for the rest of this scope.
 		timer := time.NewTimer(duration)
@@ -2420,7 +2139,6 @@ Defines room-local state, room membership, history retention, and waiting-queue 
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -2432,11 +2150,8 @@ import (
 	"net-cat/models"
 // L7: Closes the import block after listing all package dependencies.
 )
-// L8: Blank line that separates logical sections and keeps the file readable.
 
-// L9: Source comment carried through from the code; it documents intent for the lines that follow.
 // Room holds per-room state: members, history, and waiting queue.
-// L10: Source comment carried through from the code; it documents intent for the lines that follow.
 // All access is protected by s.mu — no per-room mutex.
 // L11: Defines the `Room` struct, which groups related state that this package manages together.
 type Room struct {
@@ -2450,7 +2165,6 @@ type Room struct {
 	queue   []*QueueEntry
 // L16: Closes the struct definition after listing all of its fields.
 }
-// L17: Blank line that separates logical sections and keeps the file readable.
 
 // L18: Declares the `newRoom` function, which starts a named unit of behavior other code can call.
 func newRoom(name string) *Room {
@@ -2464,13 +2178,9 @@ func newRoom(name string) *Room {
 	}
 // L23: Closes the current block and returns control to the surrounding scope.
 }
-// L24: Blank line that separates logical sections and keeps the file readable.
 
-// L25: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- room management (all require s.mu held) ----------
-// L26: Blank line that separates logical sections and keeps the file readable.
 
-// L27: Source comment carried through from the code; it documents intent for the lines that follow.
 // getOrCreateRoom returns the room, creating it if needed. Must hold s.mu write lock.
 // L28: Declares the `getOrCreateRoom` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) getOrCreateRoom(name string) *Room {
@@ -2488,11 +2198,8 @@ func (s *Server) getOrCreateRoom(name string) *Room {
 	return r
 // L35: Closes the current block and returns control to the surrounding scope.
 }
-// L36: Blank line that separates logical sections and keeps the file readable.
 
-// L37: Source comment carried through from the code; it documents intent for the lines that follow.
 // deleteRoomIfEmpty removes a room from the map if it has no clients and no queue.
-// L38: Source comment carried through from the code; it documents intent for the lines that follow.
 // Never deletes the DefaultRoom.
 // L39: Declares the `deleteRoomIfEmpty` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) deleteRoomIfEmpty(name string) {
@@ -2522,15 +2229,11 @@ func (s *Server) deleteRoomIfEmpty(name string) {
 	}
 // L52: Closes the current block and returns control to the surrounding scope.
 }
-// L53: Blank line that separates logical sections and keeps the file readable.
 
-// L54: Source comment carried through from the code; it documents intent for the lines that follow.
 // JoinRoom moves a client from their current room (if any) into the target room.
-// L55: Source comment carried through from the code; it documents intent for the lines that follow.
 // Must hold s.mu write lock.
 // L56: Declares the `JoinRoom` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) JoinRoom(c *client.Client, roomName string) {
-// L57: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Remove from old room if any
 // L58: Evaluates `c.Room != ""` and enters the guarded branch only when that condition holds.
 	if c.Room != "" {
@@ -2550,13 +2253,9 @@ func (s *Server) JoinRoom(c *client.Client, roomName string) {
 	c.Room = roomName
 // L66: Closes the current block and returns control to the surrounding scope.
 }
-// L67: Blank line that separates logical sections and keeps the file readable.
 
-// L68: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- room-scoped broadcast ----------
-// L69: Blank line that separates logical sections and keeps the file readable.
 
-// L70: Source comment carried through from the code; it documents intent for the lines that follow.
 // BroadcastRoom sends msg to every client in the room except exclude.
 // L71: Declares the `BroadcastRoom` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) BroadcastRoom(roomName, msg string, exclude string) {
@@ -2584,9 +2283,7 @@ func (s *Server) BroadcastRoom(roomName, msg string, exclude string) {
 	}
 // L83: Closes the current block and returns control to the surrounding scope.
 }
-// L84: Blank line that separates logical sections and keeps the file readable.
 
-// L85: Source comment carried through from the code; it documents intent for the lines that follow.
 // BroadcastRoomAll sends msg to every client in the room.
 // L86: Declares the `BroadcastRoomAll` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) BroadcastRoomAll(roomName, msg string) {
@@ -2610,9 +2307,7 @@ func (s *Server) BroadcastRoomAll(roomName, msg string) {
 	}
 // L96: Closes the current block and returns control to the surrounding scope.
 }
-// L97: Blank line that separates logical sections and keeps the file readable.
 
-// L98: Source comment carried through from the code; it documents intent for the lines that follow.
 // BroadcastAllRooms sends msg to every connected client across all rooms.
 // L99: Declares the `BroadcastAllRooms` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) BroadcastAllRooms(msg string) {
@@ -2628,13 +2323,9 @@ func (s *Server) BroadcastAllRooms(msg string) {
 	}
 // L105: Closes the current block and returns control to the surrounding scope.
 }
-// L106: Blank line that separates logical sections and keeps the file readable.
 
-// L107: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- room history ----------
-// L108: Blank line that separates logical sections and keeps the file readable.
 
-// L109: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetRoomHistory returns a copy of the room's history.
 // L110: Declares the `GetRoomHistory` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetRoomHistory(roomName string) []models.Message {
@@ -2658,9 +2349,7 @@ func (s *Server) GetRoomHistory(roomName string) []models.Message {
 	return out
 // L120: Closes the current block and returns control to the surrounding scope.
 }
-// L121: Blank line that separates logical sections and keeps the file readable.
 
-// L122: Source comment carried through from the code; it documents intent for the lines that follow.
 // AddRoomHistory appends a message to the room's history.
 // L123: Declares the `AddRoomHistory` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) AddRoomHistory(roomName string, msg models.Message) {
@@ -2674,9 +2363,7 @@ func (s *Server) AddRoomHistory(roomName string, msg models.Message) {
 	r.history = append(r.history, msg)
 // L128: Closes the current block and returns control to the surrounding scope.
 }
-// L129: Blank line that separates logical sections and keeps the file readable.
 
-// L130: Source comment carried through from the code; it documents intent for the lines that follow.
 // recordRoomEvent sets the Room field on the message, adds to room history, and logs.
 // L131: Declares the `recordRoomEvent` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) recordRoomEvent(roomName string, msg models.Message) {
@@ -2688,13 +2375,9 @@ func (s *Server) recordRoomEvent(roomName string, msg models.Message) {
 	s.Logger.Log(msg)
 // L135: Closes the current block and returns control to the surrounding scope.
 }
-// L136: Blank line that separates logical sections and keeps the file readable.
 
-// L137: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- room queries ----------
-// L138: Blank line that separates logical sections and keeps the file readable.
 
-// L139: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetRoomNames returns a sorted list of room names.
 // L140: Declares the `GetRoomNames` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetRoomNames() []string {
@@ -2710,7 +2393,6 @@ func (s *Server) GetRoomNames() []string {
 		names = append(names, name)
 // L146: Closes the current block and returns control to the surrounding scope.
 	}
-// L147: Source comment carried through from the code; it documents intent for the lines that follow.
 	// insertion sort
 // L148: Starts a loop controlled by `i := 1; i < len(names); i++`, repeating until the loop condition or range is exhausted.
 	for i := 1; i < len(names); i++ {
@@ -2734,9 +2416,7 @@ func (s *Server) GetRoomNames() []string {
 	return names
 // L158: Closes the current block and returns control to the surrounding scope.
 }
-// L159: Blank line that separates logical sections and keeps the file readable.
 
-// L160: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetRoomClientCount returns the number of clients in a room.
 // L161: Declares the `GetRoomClientCount` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetRoomClientCount(roomName string) int {
@@ -2756,9 +2436,7 @@ func (s *Server) GetRoomClientCount(roomName string) int {
 	return len(r.clients)
 // L169: Closes the current block and returns control to the surrounding scope.
 }
-// L170: Blank line that separates logical sections and keeps the file readable.
 
-// L171: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetRoomClientNames returns a sorted list of client names in a room.
 // L172: Declares the `GetRoomClientNames` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetRoomClientNames(roomName string) []string {
@@ -2782,7 +2460,6 @@ func (s *Server) GetRoomClientNames(roomName string) []string {
 		names = append(names, name)
 // L182: Closes the current block and returns control to the surrounding scope.
 	}
-// L183: Source comment carried through from the code; it documents intent for the lines that follow.
 	// insertion sort
 // L184: Starts a loop controlled by `i := 1; i < len(names); i++`, repeating until the loop condition or range is exhausted.
 	for i := 1; i < len(names); i++ {
@@ -2806,9 +2483,7 @@ func (s *Server) GetRoomClientNames(roomName string) []string {
 	return names
 // L194: Closes the current block and returns control to the surrounding scope.
 }
-// L195: Blank line that separates logical sections and keeps the file readable.
 
-// L196: Source comment carried through from the code; it documents intent for the lines that follow.
 // checkRoomCapacity returns true if the room has space for another client.
 // L197: Declares the `checkRoomCapacity` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) checkRoomCapacity(roomName string) bool {
@@ -2828,15 +2503,10 @@ func (s *Server) checkRoomCapacity(roomName string) bool {
 	return len(r.clients) < MaxActiveClients
 // L205: Closes the current block and returns control to the surrounding scope.
 }
-// L206: Blank line that separates logical sections and keeps the file readable.
 
-// L207: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- room-scoped queue management ----------
-// L208: Blank line that separates logical sections and keeps the file readable.
 
-// L209: Source comment carried through from the code; it documents intent for the lines that follow.
 // admitFromRoomQueue admits the first valid queued client in a specific room.
-// L210: Source comment carried through from the code; it documents intent for the lines that follow.
 // No-op during shutdown.
 // L211: Declares the `admitFromRoomQueue` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) admitFromRoomQueue(roomName string) {
@@ -2884,9 +2554,7 @@ func (s *Server) admitFromRoomQueue(roomName string) {
 	}
 // L233: Closes the current block and returns control to the surrounding scope.
 }
-// L234: Blank line that separates logical sections and keeps the file readable.
 
-// L235: Source comment carried through from the code; it documents intent for the lines that follow.
 // removeFromRoomQueue removes the given entry from a room's queue and sends position updates.
 // L236: Declares the `removeFromRoomQueue` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) removeFromRoomQueue(roomName string, entry *QueueEntry) {
@@ -2922,11 +2590,8 @@ func (s *Server) removeFromRoomQueue(roomName string, entry *QueueEntry) {
 	}
 // L252: Closes the current block and returns control to the surrounding scope.
 }
-// L253: Blank line that separates logical sections and keeps the file readable.
 
-// L254: Source comment carried through from the code; it documents intent for the lines that follow.
 // RemoveFromQueueByIP removes all queue entries across all rooms whose IP matches
-// L255: Source comment carried through from the code; it documents intent for the lines that follow.
 // and returns their clients.
 // L256: Declares the `RemoveFromAllRoomQueuesByIP` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RemoveFromAllRoomQueuesByIP(ip string) []*client.Client {
@@ -2936,7 +2601,6 @@ func (s *Server) RemoveFromAllRoomQueuesByIP(ip string) []*client.Client {
 	s.mu.Lock()
 // L259: Schedules this cleanup or follow-up call to run when the current function returns.
 	defer s.mu.Unlock()
-// L260: Blank line that separates logical sections and keeps the file readable.
 
 // L261: Declares `removed` in the current scope so later lines can fill or mutate it as needed.
 	var removed []*client.Client
@@ -2985,7 +2649,6 @@ Maintains global client registries and shared helpers for registration, lookup, 
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -2997,13 +2660,9 @@ import (
 	"time"
 // L7: Closes the import block after listing all package dependencies.
 )
-// L8: Blank line that separates logical sections and keeps the file readable.
 
-// L9: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- connection tracking ----------
-// L10: Blank line that separates logical sections and keeps the file readable.
 
-// L11: Source comment carried through from the code; it documents intent for the lines that follow.
 // TrackClient registers a connection in allClients for shutdown notification.
 // L12: Declares the `TrackClient` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) TrackClient(c *client.Client) {
@@ -3015,9 +2674,7 @@ func (s *Server) TrackClient(c *client.Client) {
 	s.allClients[c] = struct{}{}
 // L16: Closes the current block and returns control to the surrounding scope.
 }
-// L17: Blank line that separates logical sections and keeps the file readable.
 
-// L18: Source comment carried through from the code; it documents intent for the lines that follow.
 // UntrackClient removes a connection from allClients.
 // L19: Declares the `UntrackClient` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) UntrackClient(c *client.Client) {
@@ -3029,17 +2686,11 @@ func (s *Server) UntrackClient(c *client.Client) {
 	delete(s.allClients, c)
 // L23: Closes the current block and returns control to the surrounding scope.
 }
-// L24: Blank line that separates logical sections and keeps the file readable.
 
-// L25: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- client map ----------
-// L26: Blank line that separates logical sections and keeps the file readable.
 
-// L27: Source comment carried through from the code; it documents intent for the lines that follow.
 // RegisterClient atomically checks uniqueness and adds the client to the global map.
-// L28: Source comment carried through from the code; it documents intent for the lines that follow.
 // Room assignment happens separately via JoinRoom. Returns nil on success or a
-// L29: Source comment carried through from the code; it documents intent for the lines that follow.
 // generic error if the name is taken or reserved.
 // L30: Declares the `RegisterClient` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RegisterClient(c *client.Client, name string) error {
@@ -3073,7 +2724,6 @@ func (s *Server) RegisterClient(c *client.Client, name string) error {
 	return nil
 // L45: Closes the current block and returns control to the surrounding scope.
 }
-// L46: Blank line that separates logical sections and keeps the file readable.
 
 // L47: Declares the `RemoveClient` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RemoveClient(username string) {
@@ -3101,7 +2751,6 @@ func (s *Server) RemoveClient(username string) {
 	}
 // L59: Closes the current block and returns control to the surrounding scope.
 }
-// L60: Blank line that separates logical sections and keeps the file readable.
 
 // L61: Declares the `GetClient` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetClient(name string) *client.Client {
@@ -3113,7 +2762,6 @@ func (s *Server) GetClient(name string) *client.Client {
 	return s.clients[name]
 // L65: Closes the current block and returns control to the surrounding scope.
 }
-// L66: Blank line that separates logical sections and keeps the file readable.
 
 // L67: Declares the `GetClientCount` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetClientCount() int {
@@ -3125,7 +2773,6 @@ func (s *Server) GetClientCount() int {
 	return len(s.clients)
 // L71: Closes the current block and returns control to the surrounding scope.
 }
-// L72: Blank line that separates logical sections and keeps the file readable.
 
 // L73: Declares the `GetClientNames` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetClientNames() []string {
@@ -3145,7 +2792,6 @@ func (s *Server) GetClientNames() []string {
 	return names
 // L81: Closes the current block and returns control to the surrounding scope.
 }
-// L82: Blank line that separates logical sections and keeps the file readable.
 
 // L83: Declares the `IsReservedName` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) IsReservedName(name string) bool {
@@ -3153,11 +2799,8 @@ func (s *Server) IsReservedName(name string) bool {
 	return s.reservedNames[name]
 // L85: Closes the current block and returns control to the surrounding scope.
 }
-// L86: Blank line that separates logical sections and keeps the file readable.
 
-// L87: Source comment carried through from the code; it documents intent for the lines that follow.
 // RenameClient atomically swaps the key in the client and room maps.
-// L88: Source comment carried through from the code; it documents intent for the lines that follow.
 // Returns false if newName is already taken or reserved.
 // L89: Declares the `RenameClient` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RenameClient(c *client.Client, oldName, newName string) bool {
@@ -3183,7 +2826,6 @@ func (s *Server) RenameClient(c *client.Client, oldName, newName string) bool {
 	c.Username = newName
 // L100: Updates `s.clients[newName]` so subsequent logic sees the new state.
 	s.clients[newName] = c
-// L101: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Update room's client map
 // L102: Evaluates `c.Room != ""` and enters the guarded branch only when that condition holds.
 	if c.Room != "" {
@@ -3201,11 +2843,8 @@ func (s *Server) RenameClient(c *client.Client, oldName, newName string) bool {
 	return true
 // L109: Closes the current block and returns control to the surrounding scope.
 }
-// L110: Blank line that separates logical sections and keeps the file readable.
 
-// L111: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetClientsByIP returns all registered clients whose IP matches the given host.
-// L112: Source comment carried through from the code; it documents intent for the lines that follow.
 // Pass exclude to skip a specific username (e.g. the command issuer).
 // L113: Declares the `GetClientsByIP` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetClientsByIP(host string, exclude string) []*client.Client {
@@ -3229,13 +2868,9 @@ func (s *Server) GetClientsByIP(host string, exclude string) []*client.Client {
 	return result
 // L123: Closes the current block and returns control to the surrounding scope.
 }
-// L124: Blank line that separates logical sections and keeps the file readable.
 
-// L125: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- broadcast ----------
-// L126: Blank line that separates logical sections and keeps the file readable.
 
-// L127: Source comment carried through from the code; it documents intent for the lines that follow.
 // Broadcast sends msg to every connected client except the one named exclude.
 // L128: Declares the `Broadcast` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) Broadcast(msg string, exclude string) {
@@ -3255,9 +2890,7 @@ func (s *Server) Broadcast(msg string, exclude string) {
 	}
 // L136: Closes the current block and returns control to the surrounding scope.
 }
-// L137: Blank line that separates logical sections and keeps the file readable.
 
-// L138: Source comment carried through from the code; it documents intent for the lines that follow.
 // BroadcastAll sends msg to every connected client.
 // L139: Declares the `BroadcastAll` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) BroadcastAll(msg string) {
@@ -3282,7 +2915,6 @@ Handles connection onboarding, validation, room selection, queue waiting, messag
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -3304,9 +2936,7 @@ import (
 	"time"
 // L12: Closes the import block after listing all package dependencies.
 )
-// L13: Blank line that separates logical sections and keeps the file readable.
 
-// L14: Source comment carried through from the code; it documents intent for the lines that follow.
 // WelcomeBanner is the exact ASCII art sent on first connect (no trailing prompt).
 // L15: Updates `const WelcomeBanner` so subsequent logic sees the new state.
 const WelcomeBanner = "Welcome to TCP-Chat!\n" +
@@ -3342,25 +2972,18 @@ const WelcomeBanner = "Welcome to TCP-Chat!\n" +
 	"\\____   )MMMMMP|   .'\n" +
 // L31: Carries forward the surrounding declaration or expression with the exact value or syntax needed here.
 	"     `-'       `--'\n"
-// L32: Blank line that separates logical sections and keeps the file readable.
 
-// L33: Source comment carried through from the code; it documents intent for the lines that follow.
 // NamePrompt is re-sent after every failed validation attempt.
 // L34: Updates `const NamePrompt` so subsequent logic sees the new state.
 const NamePrompt = "[ENTER YOUR NAME]:"
-// L35: Blank line that separates logical sections and keeps the file readable.
 
-// L36: Source comment carried through from the code; it documents intent for the lines that follow.
 // RoomPrompt is sent during room selection.
 // L37: Updates `const RoomPrompt` so subsequent logic sees the new state.
 const RoomPrompt = "[ENTER ROOM NAME] (Enter for 'general'):"
-// L38: Blank line that separates logical sections and keeps the file readable.
 
-// L39: Source comment carried through from the code; it documents intent for the lines that follow.
 // handleConnection manages one TCP connection through onboarding, messaging, and cleanup.
 // L40: Declares the `handleConnection` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) handleConnection(conn net.Conn) {
-// L41: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Enable aggressive TCP keepalive for faster dead peer detection on real connections
 // L42: Evaluates `tcpConn, ok := conn.(*net.TCPConn); ok` and enters the guarded branch only when that condition holds.
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
@@ -3370,7 +2993,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		tcpConn.SetKeepAlivePeriod(5 * time.Second)
 // L45: Closes the current block and returns control to the surrounding scope.
 	}
-// L46: Blank line that separates logical sections and keeps the file readable.
 
 // L47: Creates `c` from the result of `client.NewClient`, capturing fresh state for the rest of this scope.
 	c := client.NewClient(conn)
@@ -3378,13 +3000,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.TrackClient(c)
 // L49: Schedules this cleanup or follow-up call to run when the current function returns.
 	defer s.UntrackClient(c)
-// L50: Blank line that separates logical sections and keeps the file readable.
 
-// L51: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Check IP against kick/ban lists BEFORE welcome banner or queue prompt.
-// L52: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Write directly to conn (bypassing the async writeLoop) to guarantee delivery
-// L53: Source comment carried through from the code; it documents intent for the lines that follow.
 	// before we close the connection.
 // L54: Evaluates `blocked, reason := s.IsIPBlocked(c.IP); blocked` and enters the guarded branch only when that condition holds.
 	if blocked, reason := s.IsIPBlocked(c.IP); blocked {
@@ -3396,9 +3014,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 // L58: Closes the current block and returns control to the surrounding scope.
 	}
-// L59: Blank line that separates logical sections and keeps the file readable.
 
-// L60: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Reject connections that arrive during shutdown
 // L61: Evaluates `s.IsShuttingDown()` and enters the guarded branch only when that condition holds.
 	if s.IsShuttingDown() {
@@ -3410,15 +3026,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 // L65: Closes the current block and returns control to the surrounding scope.
 	}
-// L66: Blank line that separates logical sections and keeps the file readable.
 
-// L67: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Send welcome banner + name prompt
 // L68: Calls `c.Send` here for its side effects or returned value in the surrounding control flow.
 	c.Send(WelcomeBanner + NamePrompt)
-// L69: Blank line that separates logical sections and keeps the file readable.
 
-// L70: Source comment carried through from the code; it documents intent for the lines that follow.
 	// --- Name validation loop (infinite retries) ---
 // L71: Creates `registered` as a new local binding so later lines can reuse this computed value.
 	registered := false
@@ -3448,7 +3060,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 // L84: Closes the current block and returns control to the surrounding scope.
 		}
-// L85: Blank line that separates logical sections and keeps the file readable.
 
 // L86: Evaluates `valErr := validateName(name); valErr != nil` and enters the guarded branch only when that condition holds.
 		if valErr := validateName(name); valErr != nil {
@@ -3488,9 +3099,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 // L104: Closes the current block and returns control to the surrounding scope.
 	}
-// L105: Blank line that separates logical sections and keeps the file readable.
 
-// L106: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Auto-restore admin privileges for known admins
 // L107: Evaluates `s.IsKnownAdmin(c.Username)` and enters the guarded branch only when that condition holds.
 	if s.IsKnownAdmin(c.Username) {
@@ -3500,15 +3109,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 		c.Send("Welcome back, admin!\n")
 // L110: Closes the current block and returns control to the surrounding scope.
 	}
-// L111: Blank line that separates logical sections and keeps the file readable.
 
-// L112: Source comment carried through from the code; it documents intent for the lines that follow.
 	// --- Room selection ---
 // L113: Creates `roomName` from the result of `s.readRoomChoice`, capturing fresh state for the rest of this scope.
 	roomName := s.readRoomChoice(c)
 // L114: Evaluates `roomName == ""` and enters the guarded branch only when that condition holds.
 	if roomName == "" {
-// L115: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Client disconnected during room selection
 // L116: Calls `s.RemoveClient` here for its side effects or returned value in the surrounding control flow.
 		s.RemoveClient(c.Username)
@@ -3518,9 +3124,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 // L119: Closes the current block and returns control to the surrounding scope.
 	}
-// L120: Blank line that separates logical sections and keeps the file readable.
 
-// L121: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Check room capacity and offer queue if full
 // L122: Evaluates `!s.checkOrQueueRoom(c, roomName)` and enters the guarded branch only when that condition holds.
 	if !s.checkOrQueueRoom(c, roomName) {
@@ -3532,9 +3136,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		return
 // L126: Closes the current block and returns control to the surrounding scope.
 	}
-// L127: Blank line that separates logical sections and keeps the file readable.
 
-// L128: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Join the selected room
 // L129: Calls `s.mu.Lock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.Lock()
@@ -3542,9 +3144,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.JoinRoom(c, roomName)
 // L131: Calls `s.mu.Unlock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.Unlock()
-// L132: Blank line that separates logical sections and keeps the file readable.
 
-// L133: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Cleanup runs on any exit from this point (disconnect, /quit, kick, etc.)
 // L134: Schedules this cleanup or follow-up call to run when the current function returns.
 	defer func() {
@@ -3556,7 +3156,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		switch c.GetDisconnectReason() {
 // L138: Selects the `"kicked", "banned"` branch inside the surrounding switch or select.
 		case "kicked", "banned":
-// L139: Source comment carried through from the code; it documents intent for the lines that follow.
 			// moderation handler already removed from map + broadcast + logged
 // L140: Defines the fallback branch used when no earlier case matches or no channel operation is ready.
 		default:
@@ -3596,9 +3195,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		c.Close()
 // L158: Carries forward the surrounding declaration or expression with the exact value or syntax needed here.
 	}()
-// L159: Blank line that separates logical sections and keeps the file readable.
 
-// L160: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Deliver room history
 // L161: Starts a loop controlled by `_, msg := range s.GetRoomHistory(c.Room)`, repeating until the loop condition or range is exhausted.
 	for _, msg := range s.GetRoomHistory(c.Room) {
@@ -3606,21 +3203,15 @@ func (s *Server) handleConnection(conn net.Conn) {
 		c.Send(msg.Display() + "\n")
 // L163: Closes the current block and returns control to the surrounding scope.
 	}
-// L164: Blank line that separates logical sections and keeps the file readable.
 
-// L165: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Enable character-at-a-time echo mode for input continuity
 // L166: Calls `c.SetEchoMode` here for its side effects or returned value in the surrounding control flow.
 	c.SetEchoMode(true)
-// L167: Blank line that separates logical sections and keeps the file readable.
 
-// L168: Source comment carried through from the code; it documents intent for the lines that follow.
 	// First prompt (uses SendPrompt so writeLoop tracks the prompt for redraw)
 // L169: Calls `c.SendPrompt` here for its side effects or returned value in the surrounding control flow.
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
-// L170: Blank line that separates logical sections and keeps the file readable.
 
-// L171: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Broadcast join to the room
 // L172: Creates `joinMsg` as a new local binding so later lines can reuse this computed value.
 	joinMsg := models.Message{
@@ -3636,17 +3227,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.recordRoomEvent(c.Room, joinMsg)
 // L178: Calls `s.BroadcastRoom` here for its side effects or returned value in the surrounding control flow.
 	s.BroadcastRoom(c.Room, models.FormatJoin(c.Username)+"\n", c.Username)
-// L179: Blank line that separates logical sections and keeps the file readable.
 
-// L180: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Initialize heartbeat tracking and start the health check goroutine
 // L181: Calls `c.SetLastInput` here for its side effects or returned value in the surrounding control flow.
 	c.SetLastInput(time.Now())
 // L182: Launches the following call in a new goroutine so it can run concurrently with the current path.
 	go s.startHeartbeat(c)
-// L183: Blank line that separates logical sections and keeps the file readable.
 
-// L184: Source comment carried through from the code; it documents intent for the lines that follow.
 	// --- Message loop (character-at-a-time reading with echo) ---
 // L185: Starts a loop controlled by ``, repeating until the loop condition or range is exhausted.
 	for {
@@ -3674,7 +3261,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 // L197: Closes the current block and returns control to the surrounding scope.
 		}
-// L198: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Any input from the client proves they are alive (heartbeat tracking)
 // L199: Calls `c.SetLastInput` here for its side effects or returned value in the surrounding control flow.
 		c.SetLastInput(time.Now())
@@ -3698,13 +3284,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 // L209: Closes the current block and returns control to the surrounding scope.
 }
-// L210: Blank line that separates logical sections and keeps the file readable.
 
-// L211: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- room selection ----------
-// L212: Blank line that separates logical sections and keeps the file readable.
 
-// L213: Source comment carried through from the code; it documents intent for the lines that follow.
 // sendRoomSelection lists available rooms with counts and sends the room prompt.
 // L214: Declares the `sendRoomSelection` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) sendRoomSelection(c *client.Client) {
@@ -3724,11 +3306,8 @@ func (s *Server) sendRoomSelection(c *client.Client) {
 	c.Send(RoomPrompt)
 // L222: Closes the current block and returns control to the surrounding scope.
 }
-// L223: Blank line that separates logical sections and keeps the file readable.
 
-// L224: Source comment carried through from the code; it documents intent for the lines that follow.
 // readRoomChoice sends room selection prompt and reads the client's choice.
-// L225: Source comment carried through from the code; it documents intent for the lines that follow.
 // Returns the room name, or "" if the client disconnected.
 // L226: Declares the `readRoomChoice` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) readRoomChoice(c *client.Client) string {
@@ -3766,17 +3345,11 @@ func (s *Server) readRoomChoice(c *client.Client) string {
 	}
 // L243: Closes the current block and returns control to the surrounding scope.
 }
-// L244: Blank line that separates logical sections and keeps the file readable.
 
-// L245: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- capacity check and queue (per-room) ----------
-// L246: Blank line that separates logical sections and keeps the file readable.
 
-// L247: Source comment carried through from the code; it documents intent for the lines that follow.
 // checkOrQueueRoom returns true if the client can proceed to join the room.
-// L248: Source comment carried through from the code; it documents intent for the lines that follow.
 // If the room is at capacity, offers a queue position and blocks until
-// L249: Source comment carried through from the code; it documents intent for the lines that follow.
 // admitted, declined, or the server shuts down.
 // L250: Declares the `checkOrQueueRoom` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
@@ -3786,7 +3359,6 @@ func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
 		return false
 // L253: Closes the current block and returns control to the surrounding scope.
 	}
-// L254: Blank line that separates logical sections and keeps the file readable.
 
 // L255: Evaluates `s.checkRoomCapacity(roomName)` and enters the guarded branch only when that condition holds.
 	if s.checkRoomCapacity(roomName) {
@@ -3794,9 +3366,7 @@ func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
 		return true
 // L257: Closes the current block and returns control to the surrounding scope.
 	}
-// L258: Blank line that separates logical sections and keeps the file readable.
 
-// L259: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Room is full — offer queue
 // L260: Calls `s.mu.Lock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.Lock()
@@ -3816,13 +3386,10 @@ func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
 	pos := len(r.queue)
 // L268: Calls `s.mu.Unlock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.Unlock()
-// L269: Blank line that separates logical sections and keeps the file readable.
 
 // L270: Calls `c.Send` here for its side effects or returned value in the surrounding control flow.
 	c.Send(fmt.Sprintf("Room '%s' is full. You are #%d in the queue. Would you like to wait? (yes/no)\n", roomName, pos))
-// L271: Blank line that separates logical sections and keeps the file readable.
 
-// L272: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Read yes/no response
 // L273: Starts a loop controlled by ``, repeating until the loop condition or range is exhausted.
 	for {
@@ -3862,11 +3429,8 @@ func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
 	}
 // L291: Closes the current block and returns control to the surrounding scope.
 }
-// L292: Blank line that separates logical sections and keeps the file readable.
 
-// L293: Source comment carried through from the code; it documents intent for the lines that follow.
 // waitForRoomAdmission blocks until the client is admitted from the room queue,
-// L294: Source comment carried through from the code; it documents intent for the lines that follow.
 // disconnects, or the server shuts down. Returns true if admitted.
 // L295: Declares the `waitForRoomAdmission` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) waitForRoomAdmission(c *client.Client, roomName string, entry *QueueEntry) bool {
@@ -3910,7 +3474,6 @@ func (s *Server) waitForRoomAdmission(c *client.Client, roomName string, entry *
 		}
 // L315: Carries forward the surrounding declaration or expression with the exact value or syntax needed here.
 	}()
-// L316: Blank line that separates logical sections and keeps the file readable.
 
 // L317: Starts a channel select so the goroutine can react to whichever communication path becomes ready first.
 	select {
@@ -3944,13 +3507,9 @@ func (s *Server) waitForRoomAdmission(c *client.Client, roomName string, entry *
 	}
 // L332: Closes the current block and returns control to the surrounding scope.
 }
-// L333: Blank line that separates logical sections and keeps the file readable.
 
-// L334: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- name validation ----------
-// L335: Blank line that separates logical sections and keeps the file readable.
 
-// L336: Source comment carried through from the code; it documents intent for the lines that follow.
 // validateName checks format rules (no uniqueness – that is checked during registration).
 // L337: Declares the `validateName` function, which starts a named unit of behavior other code can call.
 func validateName(name string) error {
@@ -4010,9 +3569,7 @@ func validateName(name string) error {
 	return nil
 // L365: Closes the current block and returns control to the surrounding scope.
 }
-// L366: Blank line that separates logical sections and keeps the file readable.
 
-// L367: Source comment carried through from the code; it documents intent for the lines that follow.
 // validateRoomName checks room name format (same rules as validateName).
 // L368: Declares the `validateRoomName` function, which starts a named unit of behavior other code can call.
 func validateRoomName(name string) error {
@@ -4051,7 +3608,6 @@ Implements the user-visible chat command surface, including room actions, modera
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -4069,11 +3625,8 @@ import (
 	"time"
 // L10: Closes the import block after listing all package dependencies.
 )
-// L11: Blank line that separates logical sections and keeps the file readable.
 
-// L12: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- chat messages ----------
-// L13: Blank line that separates logical sections and keeps the file readable.
 
 // L14: Declares the `handleChatMessage` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) handleChatMessage(c *client.Client, line string) {
@@ -4105,7 +3658,6 @@ func (s *Server) handleChatMessage(c *client.Client, line string) {
 		return
 // L28: Closes the current block and returns control to the surrounding scope.
 	}
-// L29: Blank line that separates logical sections and keeps the file readable.
 
 // L30: Creates `now` from the result of `time.Now`, capturing fresh state for the rest of this scope.
 	now := time.Now()
@@ -4131,13 +3683,9 @@ func (s *Server) handleChatMessage(c *client.Client, line string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L41: Closes the current block and returns control to the surrounding scope.
 }
-// L42: Blank line that separates logical sections and keeps the file readable.
 
-// L43: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- command dispatch ----------
-// L44: Blank line that separates logical sections and keeps the file readable.
 
-// L45: Source comment carried through from the code; it documents intent for the lines that follow.
 // dispatchCommand routes a parsed command. Returns true when the caller should exit (/quit).
 // L46: Declares the `dispatchCommand` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
@@ -4233,11 +3781,8 @@ func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
 	return false
 // L92: Closes the current block and returns control to the surrounding scope.
 }
-// L93: Blank line that separates logical sections and keeps the file readable.
 
-// L94: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /list (room-scoped) ----------
-// L95: Blank line that separates logical sections and keeps the file readable.
 
 // L96: Declares the `cmdList` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdList(c *client.Client) {
@@ -4275,9 +3820,7 @@ func (s *Server) cmdList(c *client.Client) {
 	}
 // L113: Calls `s.mu.RUnlock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.RUnlock()
-// L114: Blank line that separates logical sections and keeps the file readable.
 
-// L115: Source comment carried through from the code; it documents intent for the lines that follow.
 	// simple insertion sort
 // L116: Starts a loop controlled by `i := 1; i < len(entries); i++`, repeating until the loop condition or range is exhausted.
 	for i := 1; i < len(entries); i++ {
@@ -4297,7 +3840,6 @@ func (s *Server) cmdList(c *client.Client) {
 		entries[j+1] = key
 // L124: Closes the current block and returns control to the surrounding scope.
 	}
-// L125: Blank line that separates logical sections and keeps the file readable.
 
 // L126: Calls `c.Send` here for its side effects or returned value in the surrounding control flow.
 	c.Send(fmt.Sprintf("Room %s — connected clients:\n", roomName))
@@ -4311,11 +3853,8 @@ func (s *Server) cmdList(c *client.Client) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L131: Closes the current block and returns control to the surrounding scope.
 }
-// L132: Blank line that separates logical sections and keeps the file readable.
 
-// L133: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /rooms ----------
-// L134: Blank line that separates logical sections and keeps the file readable.
 
 // L135: Declares the `cmdRooms` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdRooms(c *client.Client) {
@@ -4343,11 +3882,8 @@ func (s *Server) cmdRooms(c *client.Client) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L147: Closes the current block and returns control to the surrounding scope.
 }
-// L148: Blank line that separates logical sections and keeps the file readable.
 
-// L149: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /switch ----------
-// L150: Blank line that separates logical sections and keeps the file readable.
 
 // L151: Declares the `cmdSwitch` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdSwitch(c *client.Client, args string) {
@@ -4393,7 +3929,6 @@ func (s *Server) cmdSwitch(c *client.Client, args string) {
 		return
 // L172: Closes the current block and returns control to the surrounding scope.
 	}
-// L173: Blank line that separates logical sections and keeps the file readable.
 
 // L174: Calls `s.switchClientRoom` here for its side effects or returned value in the surrounding control flow.
 	s.switchClientRoom(c, targetRoom)
@@ -4401,11 +3936,8 @@ func (s *Server) cmdSwitch(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L176: Closes the current block and returns control to the surrounding scope.
 }
-// L177: Blank line that separates logical sections and keeps the file readable.
 
-// L178: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /create ----------
-// L179: Blank line that separates logical sections and keeps the file readable.
 
 // L180: Declares the `cmdCreate` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdCreate(c *client.Client, args string) {
@@ -4431,9 +3963,7 @@ func (s *Server) cmdCreate(c *client.Client, args string) {
 		return
 // L191: Closes the current block and returns control to the surrounding scope.
 	}
-// L192: Blank line that separates logical sections and keeps the file readable.
 
-// L193: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Check if room already exists
 // L194: Calls `s.mu.RLock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.RLock()
@@ -4451,7 +3981,6 @@ func (s *Server) cmdCreate(c *client.Client, args string) {
 		return
 // L201: Closes the current block and returns control to the surrounding scope.
 	}
-// L202: Blank line that separates logical sections and keeps the file readable.
 
 // L203: Calls `s.switchClientRoom` here for its side effects or returned value in the surrounding control flow.
 	s.switchClientRoom(c, roomName)
@@ -4459,19 +3988,14 @@ func (s *Server) cmdCreate(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L205: Closes the current block and returns control to the surrounding scope.
 }
-// L206: Blank line that separates logical sections and keeps the file readable.
 
-// L207: Source comment carried through from the code; it documents intent for the lines that follow.
 // switchClientRoom moves a client from their current room to a new room,
-// L208: Source comment carried through from the code; it documents intent for the lines that follow.
 // handling leave/join broadcasts and history delivery.
 // L209: Declares the `switchClientRoom` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) switchClientRoom(c *client.Client, newRoom string) {
 // L210: Creates `oldRoom` as a new local binding so later lines can reuse this computed value.
 	oldRoom := c.Room
-// L211: Blank line that separates logical sections and keeps the file readable.
 
-// L212: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Broadcast leave to old room
 // L213: Creates `leaveMsg` as a new local binding so later lines can reuse this computed value.
 	leaveMsg := models.Message{
@@ -4489,9 +4013,7 @@ func (s *Server) switchClientRoom(c *client.Client, newRoom string) {
 	s.recordRoomEvent(oldRoom, leaveMsg)
 // L220: Calls `s.BroadcastRoom` here for its side effects or returned value in the surrounding control flow.
 	s.BroadcastRoom(oldRoom, models.FormatLeave(c.Username)+"\n", c.Username)
-// L221: Blank line that separates logical sections and keeps the file readable.
 
-// L222: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Move to new room
 // L223: Calls `s.mu.Lock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.Lock()
@@ -4499,17 +4021,13 @@ func (s *Server) switchClientRoom(c *client.Client, newRoom string) {
 	s.JoinRoom(c, newRoom)
 // L225: Calls `s.mu.Unlock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.Unlock()
-// L226: Blank line that separates logical sections and keeps the file readable.
 
-// L227: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Admit from old room's queue and clean up
 // L228: Calls `s.admitFromRoomQueue` here for its side effects or returned value in the surrounding control flow.
 	s.admitFromRoomQueue(oldRoom)
 // L229: Calls `s.deleteRoomIfEmpty` here for its side effects or returned value in the surrounding control flow.
 	s.deleteRoomIfEmpty(oldRoom)
-// L230: Blank line that separates logical sections and keeps the file readable.
 
-// L231: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Deliver new room's history
 // L232: Starts a loop controlled by `_, msg := range s.GetRoomHistory(newRoom)`, repeating until the loop condition or range is exhausted.
 	for _, msg := range s.GetRoomHistory(newRoom) {
@@ -4517,9 +4035,7 @@ func (s *Server) switchClientRoom(c *client.Client, newRoom string) {
 		c.Send(msg.Display() + "\n")
 // L234: Closes the current block and returns control to the surrounding scope.
 	}
-// L235: Blank line that separates logical sections and keeps the file readable.
 
-// L236: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Broadcast join to new room
 // L237: Creates `joinMsg` as a new local binding so later lines can reuse this computed value.
 	joinMsg := models.Message{
@@ -4535,17 +4051,13 @@ func (s *Server) switchClientRoom(c *client.Client, newRoom string) {
 	s.recordRoomEvent(newRoom, joinMsg)
 // L243: Calls `s.BroadcastRoom` here for its side effects or returned value in the surrounding control flow.
 	s.BroadcastRoom(newRoom, models.FormatJoin(c.Username)+"\n", c.Username)
-// L244: Blank line that separates logical sections and keeps the file readable.
 
 // L245: Calls `c.Send` here for its side effects or returned value in the surrounding control flow.
 	c.Send("Switched to room '" + newRoom + "'.\n")
 // L246: Closes the current block and returns control to the surrounding scope.
 }
-// L247: Blank line that separates logical sections and keeps the file readable.
 
-// L248: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /help (role-aware) ----------
-// L249: Blank line that separates logical sections and keeps the file readable.
 
 // L250: Declares the `cmdHelp` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdHelp(c *client.Client) {
@@ -4569,11 +4081,8 @@ func (s *Server) cmdHelp(c *client.Client) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L260: Closes the current block and returns control to the surrounding scope.
 }
-// L261: Blank line that separates logical sections and keeps the file readable.
 
-// L262: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /name ----------
-// L263: Blank line that separates logical sections and keeps the file readable.
 
 // L264: Declares the `cmdName` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdName(c *client.Client, args string) {
@@ -4619,7 +4128,6 @@ func (s *Server) cmdName(c *client.Client, args string) {
 		return
 // L285: Closes the current block and returns control to the surrounding scope.
 	}
-// L286: Blank line that separates logical sections and keeps the file readable.
 
 // L287: Creates `oldName` as a new local binding so later lines can reuse this computed value.
 	oldName := c.Username
@@ -4633,9 +4141,7 @@ func (s *Server) cmdName(c *client.Client, args string) {
 		return
 // L292: Closes the current block and returns control to the surrounding scope.
 	}
-// L293: Blank line that separates logical sections and keeps the file readable.
 
-// L294: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Update admins.json if this client is an admin
 // L295: Evaluates `c.IsAdmin()` and enters the guarded branch only when that condition holds.
 	if c.IsAdmin() {
@@ -4643,7 +4149,6 @@ func (s *Server) cmdName(c *client.Client, args string) {
 		s.RenameAdmin(oldName, newName)
 // L297: Closes the current block and returns control to the surrounding scope.
 	}
-// L298: Blank line that separates logical sections and keeps the file readable.
 
 // L299: Creates `nameMsg` as a new local binding so later lines can reuse this computed value.
 	nameMsg := models.Message{
@@ -4665,11 +4170,8 @@ func (s *Server) cmdName(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L308: Closes the current block and returns control to the surrounding scope.
 }
-// L309: Blank line that separates logical sections and keeps the file readable.
 
-// L310: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /whisper (cross-room) ----------
-// L311: Blank line that separates logical sections and keeps the file readable.
 
 // L312: Declares the `cmdWhisper` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdWhisper(c *client.Client, args string) {
@@ -4729,7 +4231,6 @@ func (s *Server) cmdWhisper(c *client.Client, args string) {
 		return
 // L340: Closes the current block and returns control to the surrounding scope.
 	}
-// L341: Blank line that separates logical sections and keeps the file readable.
 
 // L342: Creates `target` from the result of `s.GetClient`, capturing fresh state for the rest of this scope.
 	target := s.GetClient(recipient)
@@ -4743,7 +4244,6 @@ func (s *Server) cmdWhisper(c *client.Client, args string) {
 		return
 // L347: Closes the current block and returns control to the surrounding scope.
 	}
-// L348: Blank line that separates logical sections and keeps the file readable.
 
 // L349: Creates `now` from the result of `time.Now`, capturing fresh state for the rest of this scope.
 	now := time.Now()
@@ -4755,11 +4255,8 @@ func (s *Server) cmdWhisper(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L353: Closes the current block and returns control to the surrounding scope.
 }
-// L354: Blank line that separates logical sections and keeps the file readable.
 
-// L355: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /kick (same-room only) ----------
-// L356: Blank line that separates logical sections and keeps the file readable.
 
 // L357: Declares the `cmdKick` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdKick(c *client.Client, args string) {
@@ -4795,7 +4292,6 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 		return
 // L373: Closes the current block and returns control to the surrounding scope.
 	}
-// L374: Blank line that separates logical sections and keeps the file readable.
 
 // L375: Creates `targetIP` as a new local binding so later lines can reuse this computed value.
 	targetIP := target.IP
@@ -4805,7 +4301,6 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 	target.ForceDisconnectReason("kicked")
 // L378: Calls `s.RemoveClient` here for its side effects or returned value in the surrounding control flow.
 	s.RemoveClient(args)
-// L379: Blank line that separates logical sections and keeps the file readable.
 
 // L380: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -4837,11 +4332,8 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L394: Closes the current block and returns control to the surrounding scope.
 }
-// L395: Blank line that separates logical sections and keeps the file readable.
 
-// L396: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /ban (global) ----------
-// L397: Blank line that separates logical sections and keeps the file readable.
 
 // L398: Declares the `cmdBan` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdBan(c *client.Client, args string) {
@@ -4867,7 +4359,6 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 		return
 // L409: Closes the current block and returns control to the surrounding scope.
 	}
-// L410: Blank line that separates logical sections and keeps the file readable.
 
 // L411: Creates `targetIP` as a new local binding so later lines can reuse this computed value.
 	targetIP := target.IP
@@ -4879,7 +4370,6 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	target.ForceDisconnectReason("banned")
 // L415: Calls `s.RemoveClient` here for its side effects or returned value in the surrounding control flow.
 	s.RemoveClient(args)
-// L416: Blank line that separates logical sections and keeps the file readable.
 
 // L417: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -4905,9 +4395,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	target.Close()
 // L428: Calls `s.AddBanIP` here for its side effects or returned value in the surrounding control flow.
 	s.AddBanIP(targetIP)
-// L429: Blank line that separates logical sections and keeps the file readable.
 
-// L430: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Disconnect all other active clients sharing the banned IP across all rooms.
 // L431: Creates `roomsOpened` as a new local binding so later lines can reuse this computed value.
 	roomsOpened := map[string]int{targetRoom: 1}
@@ -4949,7 +4437,6 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 		roomsOpened[ccRoom]++
 // L450: Closes the current block and returns control to the surrounding scope.
 	}
-// L451: Blank line that separates logical sections and keeps the file readable.
 
 // L452: Creates `queuedRemoved` from the result of `s.RemoveFromQueueByIP`, capturing fresh state for the rest of this scope.
 	queuedRemoved := s.RemoveFromQueueByIP(targetIP)
@@ -4961,7 +4448,6 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 		qc.Close()
 // L456: Closes the current block and returns control to the surrounding scope.
 	}
-// L457: Blank line that separates logical sections and keeps the file readable.
 
 // L458: Starts a loop controlled by `rn, count := range roomsOpened`, repeating until the loop condition or range is exhausted.
 	for rn, count := range roomsOpened {
@@ -4977,11 +4463,8 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L464: Closes the current block and returns control to the surrounding scope.
 }
-// L465: Blank line that separates logical sections and keeps the file readable.
 
-// L466: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /mute (global, broadcast to all rooms) ----------
-// L467: Blank line that separates logical sections and keeps the file readable.
 
 // L468: Declares the `cmdMute` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdMute(c *client.Client, args string) {
@@ -5017,7 +4500,6 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 		return
 // L484: Closes the current block and returns control to the surrounding scope.
 	}
-// L485: Blank line that separates logical sections and keeps the file readable.
 
 // L486: Calls `target.SetMuted` here for its side effects or returned value in the surrounding control flow.
 	target.SetMuted(true)
@@ -5043,11 +4525,8 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L497: Closes the current block and returns control to the surrounding scope.
 }
-// L498: Blank line that separates logical sections and keeps the file readable.
 
-// L499: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /unmute ----------
-// L500: Blank line that separates logical sections and keeps the file readable.
 
 // L501: Declares the `cmdUnmute` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdUnmute(c *client.Client, args string) {
@@ -5083,7 +4562,6 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 		return
 // L517: Closes the current block and returns control to the surrounding scope.
 	}
-// L518: Blank line that separates logical sections and keeps the file readable.
 
 // L519: Calls `target.SetMuted` here for its side effects or returned value in the surrounding control flow.
 	target.SetMuted(false)
@@ -5109,11 +4587,8 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L530: Closes the current block and returns control to the surrounding scope.
 }
-// L531: Blank line that separates logical sections and keeps the file readable.
 
-// L532: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /announce (server-wide) ----------
-// L533: Blank line that separates logical sections and keeps the file readable.
 
 // L534: Declares the `cmdAnnounce` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdAnnounce(c *client.Client, args string) {
@@ -5127,7 +4602,6 @@ func (s *Server) cmdAnnounce(c *client.Client, args string) {
 		return
 // L539: Closes the current block and returns control to the surrounding scope.
 	}
-// L540: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Log to all rooms
 // L541: Starts a loop controlled by `_, rn := range s.GetRoomNames()`, repeating until the loop condition or range is exhausted.
 	for _, rn := range s.GetRoomNames() {
@@ -5153,11 +4627,8 @@ func (s *Server) cmdAnnounce(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L552: Closes the current block and returns control to the surrounding scope.
 }
-// L553: Blank line that separates logical sections and keeps the file readable.
 
-// L554: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /promote ----------
-// L555: Blank line that separates logical sections and keeps the file readable.
 
 // L556: Declares the `cmdPromote` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdPromote(c *client.Client, args string) {
@@ -5199,7 +4670,6 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 	s.AddAdmin(args)
 // L575: Calls `target.Send` here for its side effects or returned value in the surrounding control flow.
 	target.Send("You have been promoted to admin.\n")
-// L576: Blank line that separates logical sections and keeps the file readable.
 
 // L577: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -5223,11 +4693,8 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 // L587: Closes the current block and returns control to the surrounding scope.
 }
-// L588: Blank line that separates logical sections and keeps the file readable.
 
-// L589: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- /demote ----------
-// L590: Blank line that separates logical sections and keeps the file readable.
 
 // L591: Declares the `cmdDemote` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) cmdDemote(c *client.Client, args string) {
@@ -5269,7 +4736,6 @@ func (s *Server) cmdDemote(c *client.Client, args string) {
 	s.RemoveAdmin(args)
 // L610: Calls `target.Send` here for its side effects or returned value in the surrounding control flow.
 	target.Send("Your admin privileges have been revoked.\n")
-// L611: Blank line that separates logical sections and keeps the file readable.
 
 // L612: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -5302,7 +4768,6 @@ Persists and reloads promoted admins so operator-granted privileges survive serv
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -5316,15 +4781,10 @@ import (
 	"path/filepath"
 // L8: Closes the import block after listing all package dependencies.
 )
-// L9: Blank line that separates logical sections and keeps the file readable.
 
-// L10: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- admin persistence ----------
-// L11: Blank line that separates logical sections and keeps the file readable.
 
-// L12: Source comment carried through from the code; it documents intent for the lines that follow.
 // LoadAdmins reads admins.json from disk. Missing or corrupt file is handled
-// L13: Source comment carried through from the code; it documents intent for the lines that follow.
 // gracefully: the server starts with no saved admins and a console warning.
 // L14: Declares the `LoadAdmins` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) LoadAdmins() {
@@ -5336,7 +4796,6 @@ func (s *Server) LoadAdmins() {
 		return
 // L18: Closes the current block and returns control to the surrounding scope.
 	}
-// L19: Blank line that separates logical sections and keeps the file readable.
 
 // L20: Creates `f, err` from the result of `os.Open`, capturing fresh state for the rest of this scope.
 	f, err := os.Open(path)
@@ -5354,7 +4813,6 @@ func (s *Server) LoadAdmins() {
 	}
 // L27: Schedules this cleanup or follow-up call to run when the current function returns.
 	defer f.Close()
-// L28: Blank line that separates logical sections and keeps the file readable.
 
 // L29: Declares `names` in the current scope so later lines can fill or mutate it as needed.
 	var names []string
@@ -5366,7 +4824,6 @@ func (s *Server) LoadAdmins() {
 		return
 // L33: Closes the current block and returns control to the surrounding scope.
 	}
-// L34: Blank line that separates logical sections and keeps the file readable.
 
 // L35: Calls `s.mu.Lock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.Lock()
@@ -5380,11 +4837,8 @@ func (s *Server) LoadAdmins() {
 	}
 // L40: Closes the current block and returns control to the surrounding scope.
 }
-// L41: Blank line that separates logical sections and keeps the file readable.
 
-// L42: Source comment carried through from the code; it documents intent for the lines that follow.
 // SaveAdmins writes the current admin list to admins.json atomically.
-// L43: Source comment carried through from the code; it documents intent for the lines that follow.
 // Writes to a temp file then renames for crash safety.
 // L44: Declares the `SaveAdmins` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) SaveAdmins() {
@@ -5396,7 +4850,6 @@ func (s *Server) SaveAdmins() {
 		return
 // L48: Closes the current block and returns control to the surrounding scope.
 	}
-// L49: Blank line that separates logical sections and keeps the file readable.
 
 // L50: Calls `s.mu.RLock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.RLock()
@@ -5410,9 +4863,7 @@ func (s *Server) SaveAdmins() {
 	}
 // L55: Calls `s.mu.RUnlock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.RUnlock()
-// L56: Blank line that separates logical sections and keeps the file readable.
 
-// L57: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Sort for deterministic output (simple insertion sort, no sort package)
 // L58: Starts a loop controlled by `i := 1; i < len(names); i++`, repeating until the loop condition or range is exhausted.
 	for i := 1; i < len(names); i++ {
@@ -5432,7 +4883,6 @@ func (s *Server) SaveAdmins() {
 		names[j+1] = key
 // L66: Closes the current block and returns control to the surrounding scope.
 	}
-// L67: Blank line that separates logical sections and keeps the file readable.
 
 // L68: Creates `data, err` from the result of `json.MarshalIndent`, capturing fresh state for the rest of this scope.
 	data, err := json.MarshalIndent(names, "", "  ")
@@ -5444,7 +4894,6 @@ func (s *Server) SaveAdmins() {
 		return
 // L72: Closes the current block and returns control to the surrounding scope.
 	}
-// L73: Blank line that separates logical sections and keeps the file readable.
 
 // L74: Creates `dir` from the result of `filepath.Dir`, capturing fresh state for the rest of this scope.
 	dir := filepath.Dir(path)
@@ -5466,9 +4915,7 @@ func (s *Server) SaveAdmins() {
 	}
 // L83: Closes the current block and returns control to the surrounding scope.
 }
-// L84: Blank line that separates logical sections and keeps the file readable.
 
-// L85: Source comment carried through from the code; it documents intent for the lines that follow.
 // IsKnownAdmin checks if a username is in the persisted admin list.
 // L86: Declares the `IsKnownAdmin` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) IsKnownAdmin(name string) bool {
@@ -5480,9 +4927,7 @@ func (s *Server) IsKnownAdmin(name string) bool {
 	return s.admins[name]
 // L90: Closes the current block and returns control to the surrounding scope.
 }
-// L91: Blank line that separates logical sections and keeps the file readable.
 
-// L92: Source comment carried through from the code; it documents intent for the lines that follow.
 // AddAdmin adds a username to the persisted admin list and saves.
 // L93: Declares the `AddAdmin` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) AddAdmin(name string) {
@@ -5496,9 +4941,7 @@ func (s *Server) AddAdmin(name string) {
 	s.SaveAdmins()
 // L98: Closes the current block and returns control to the surrounding scope.
 }
-// L99: Blank line that separates logical sections and keeps the file readable.
 
-// L100: Source comment carried through from the code; it documents intent for the lines that follow.
 // RemoveAdmin removes a username from the persisted admin list and saves.
 // L101: Declares the `RemoveAdmin` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RemoveAdmin(name string) {
@@ -5512,9 +4955,7 @@ func (s *Server) RemoveAdmin(name string) {
 	s.SaveAdmins()
 // L106: Closes the current block and returns control to the surrounding scope.
 }
-// L107: Blank line that separates logical sections and keeps the file readable.
 
-// L108: Source comment carried through from the code; it documents intent for the lines that follow.
 // RenameAdmin updates the persisted admin list when an admin changes their name.
 // L109: Declares the `RenameAdmin` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RenameAdmin(oldName, newName string) {
@@ -5543,7 +4984,6 @@ Resets room history at day boundaries and rebuilds in-memory history by replayin
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -5561,15 +5001,10 @@ import (
 	"time"
 // L10: Closes the import block after listing all package dependencies.
 )
-// L11: Blank line that separates logical sections and keeps the file readable.
 
-// L12: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- history ----------
-// L13: Blank line that separates logical sections and keeps the file readable.
 
-// L14: Source comment carried through from the code; it documents intent for the lines that follow.
 // ClearHistory removes all in-memory history entries across all rooms.
-// L15: Source comment carried through from the code; it documents intent for the lines that follow.
 // Called at midnight to reset history for the new calendar day.
 // L16: Declares the `ClearHistory` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) ClearHistory() {
@@ -5585,11 +5020,8 @@ func (s *Server) ClearHistory() {
 	}
 // L22: Closes the current block and returns control to the surrounding scope.
 }
-// L23: Blank line that separates logical sections and keeps the file readable.
 
-// L24: Source comment carried through from the code; it documents intent for the lines that follow.
 // AddHistory appends a message to the appropriate room's history.
-// L25: Source comment carried through from the code; it documents intent for the lines that follow.
 // If msg.Room is empty, uses DefaultRoom.
 // L26: Declares the `AddHistory` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) AddHistory(msg models.Message) {
@@ -5611,9 +5043,7 @@ func (s *Server) AddHistory(msg models.Message) {
 	r.history = append(r.history, msg)
 // L35: Closes the current block and returns control to the surrounding scope.
 }
-// L36: Blank line that separates logical sections and keeps the file readable.
 
-// L37: Source comment carried through from the code; it documents intent for the lines that follow.
 // GetHistory returns a combined copy of all room histories for backward compatibility.
 // L38: Declares the `GetHistory` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) GetHistory() []models.Message {
@@ -5633,17 +5063,11 @@ func (s *Server) GetHistory() []models.Message {
 	return all
 // L46: Closes the current block and returns control to the surrounding scope.
 }
-// L47: Blank line that separates logical sections and keeps the file readable.
 
-// L48: Source comment carried through from the code; it documents intent for the lines that follow.
 // RecoverHistory loads today's log file and reconstructs the in-memory history.
-// L49: Source comment carried through from the code; it documents intent for the lines that follow.
 // Only called on startup so that clients connecting after a restart see prior events.
-// L50: Source comment carried through from the code; it documents intent for the lines that follow.
 // Server events are excluded (not user-visible). Corrupt lines are skipped with warnings.
-// L51: Source comment carried through from the code; it documents intent for the lines that follow.
 // Messages are routed to the correct room based on the @room tag; old lines without
-// L52: Source comment carried through from the code; it documents intent for the lines that follow.
 // a room tag are assigned to the DefaultRoom.
 // L53: Declares the `RecoverHistory` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) RecoverHistory() {
@@ -5653,7 +5077,6 @@ func (s *Server) RecoverHistory() {
 		return
 // L56: Closes the current block and returns control to the surrounding scope.
 	}
-// L57: Blank line that separates logical sections and keeps the file readable.
 
 // L58: Creates `date` from the result of `logger.FormatDate`, capturing fresh state for the rest of this scope.
 	date := logger.FormatDate(time.Now())
@@ -5665,7 +5088,6 @@ func (s *Server) RecoverHistory() {
 		return
 // L62: Closes the current block and returns control to the surrounding scope.
 	}
-// L63: Blank line that separates logical sections and keeps the file readable.
 
 // L64: Creates `f, err` from the result of `os.Open`, capturing fresh state for the rest of this scope.
 	f, err := os.Open(path)
@@ -5685,13 +5107,11 @@ func (s *Server) RecoverHistory() {
 	}
 // L72: Schedules this cleanup or follow-up call to run when the current function returns.
 	defer f.Close()
-// L73: Blank line that separates logical sections and keeps the file readable.
 
 // L74: Creates `scanner` from the result of `bufio.NewScanner`, capturing fresh state for the rest of this scope.
 	scanner := bufio.NewScanner(f)
 // L75: Calls `scanner.Buffer` here for its side effects or returned value in the surrounding control flow.
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-// L76: Blank line that separates logical sections and keeps the file readable.
 
 // L77: Creates `corrupt` as a new local binding so later lines can reuse this computed value.
 	corrupt := 0
@@ -5727,7 +5147,6 @@ func (s *Server) RecoverHistory() {
 			continue
 // L93: Closes the current block and returns control to the surrounding scope.
 		}
-// L94: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Route to correct room; old logs without @room go to DefaultRoom
 // L95: Creates `roomName` as a new local binding so later lines can reuse this computed value.
 		roomName := msg.Room
@@ -5745,7 +5164,6 @@ func (s *Server) RecoverHistory() {
 		r.history = append(r.history, msg)
 // L102: Closes the current block and returns control to the surrounding scope.
 	}
-// L103: Blank line that separates logical sections and keeps the file readable.
 
 // L104: Evaluates `err := scanner.Err(); err != nil` and enters the guarded branch only when that condition holds.
 	if err := scanner.Err(); err != nil {
@@ -5753,7 +5171,6 @@ func (s *Server) RecoverHistory() {
 		fmt.Fprintf(os.Stderr, "Warning: error reading log file: %v\n", err)
 // L106: Closes the current block and returns control to the surrounding scope.
 	}
-// L107: Blank line that separates logical sections and keeps the file readable.
 
 // L108: Evaluates `corrupt > 0` and enters the guarded branch only when that condition holds.
 	if corrupt > 0 {
@@ -5772,7 +5189,6 @@ Defines host-based moderation helpers for extracting durable IP keys from networ
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -5782,13 +5198,9 @@ import (
 	"time"
 // L6: Closes the import block after listing all package dependencies.
 )
-// L7: Blank line that separates logical sections and keeps the file readable.
 
-// L8: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- IP-based moderation ----------
-// L9: Blank line that separates logical sections and keeps the file readable.
 
-// L10: Source comment carried through from the code; it documents intent for the lines that follow.
 // extractHost extracts the host part from a "host:port" address string.
 // L11: Declares the `extractHost` function, which starts a named unit of behavior other code can call.
 func extractHost(addr string) string {
@@ -5804,9 +5216,7 @@ func extractHost(addr string) string {
 	return host
 // L17: Closes the current block and returns control to the surrounding scope.
 }
-// L18: Blank line that separates logical sections and keeps the file readable.
 
-// L19: Source comment carried through from the code; it documents intent for the lines that follow.
 // AddKickCooldown blocks an IP from reconnecting for 5 minutes.
 // L20: Declares the `AddKickCooldown` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) AddKickCooldown(ip string) {
@@ -5820,9 +5230,7 @@ func (s *Server) AddKickCooldown(ip string) {
 	s.kickedIPs[host] = time.Now().Add(5 * time.Minute)
 // L25: Closes the current block and returns control to the surrounding scope.
 }
-// L26: Blank line that separates logical sections and keeps the file readable.
 
-// L27: Source comment carried through from the code; it documents intent for the lines that follow.
 // AddBanIP blocks an IP for the remainder of the server session.
 // L28: Declares the `AddBanIP` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) AddBanIP(ip string) {
@@ -5836,11 +5244,8 @@ func (s *Server) AddBanIP(ip string) {
 	s.bannedIPs[host] = true
 // L33: Closes the current block and returns control to the surrounding scope.
 }
-// L34: Blank line that separates logical sections and keeps the file readable.
 
-// L35: Source comment carried through from the code; it documents intent for the lines that follow.
 // IsIPBlocked checks if an IP is blocked by kick cooldown or ban.
-// L36: Source comment carried through from the code; it documents intent for the lines that follow.
 // Returns (blocked, rejection message). Cleans up expired kick cooldowns.
 // L37: Declares the `IsIPBlocked` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) IsIPBlocked(ip string) (bool, string) {
@@ -5881,7 +5286,6 @@ Implements the server-side operator terminal, including privileged command dispa
 ```go
 // L1: Declares `server` as the package for this directory so the compiler groups this file with the rest of that package.
 package server
-// L2: Blank line separating the package declaration from the next section.
 
 // L3: Starts the import block that declares external packages this file depends on.
 import (
@@ -5901,17 +5305,11 @@ import (
 	"time"
 // L11: Closes the import block after listing all package dependencies.
 )
-// L12: Blank line that separates logical sections and keeps the file readable.
 
-// L13: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- operator terminal ----------
-// L14: Blank line that separates logical sections and keeps the file readable.
 
-// L15: Source comment carried through from the code; it documents intent for the lines that follow.
 // StartOperator reads commands from the given reader (typically os.Stdin)
-// L16: Source comment carried through from the code; it documents intent for the lines that follow.
 // and dispatches them with full operator authority. Blocks until the reader
-// L17: Source comment carried through from the code; it documents intent for the lines that follow.
 // is exhausted or the server shuts down.
 // L18: Declares the `StartOperator` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) StartOperator(r io.Reader) {
@@ -5935,9 +5333,7 @@ func (s *Server) StartOperator(r io.Reader) {
 	}
 // L28: Closes the current block and returns control to the surrounding scope.
 }
-// L29: Blank line that separates logical sections and keeps the file readable.
 
-// L30: Source comment carried through from the code; it documents intent for the lines that follow.
 // OperatorDispatch parses and executes a single operator terminal input line.
 // L31: Declares the `OperatorDispatch` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) OperatorDispatch(input string) {
@@ -5949,7 +5345,6 @@ func (s *Server) OperatorDispatch(input string) {
 		return
 // L35: Closes the current block and returns control to the surrounding scope.
 	}
-// L36: Blank line that separates logical sections and keeps the file readable.
 
 // L37: Creates `cmdName, args, isCmd` from the result of `cmd.ParseCommand`, capturing fresh state for the rest of this scope.
 	cmdName, args, isCmd := cmd.ParseCommand(input)
@@ -5961,7 +5356,6 @@ func (s *Server) OperatorDispatch(input string) {
 		return
 // L41: Closes the current block and returns control to the surrounding scope.
 	}
-// L42: Blank line that separates logical sections and keeps the file readable.
 
 // L43: Creates `def, exists` as a new local binding so later lines can reuse this computed value.
 	def, exists := cmd.Commands[cmdName]
@@ -5973,9 +5367,7 @@ func (s *Server) OperatorDispatch(input string) {
 		return
 // L47: Closes the current block and returns control to the surrounding scope.
 	}
-// L48: Blank line that separates logical sections and keeps the file readable.
 
-// L49: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Operator has full privilege, but some commands are inapplicable
 // L50: Starts a switch on `cmdName` so the following cases can branch on that value cleanly.
 	switch cmdName {
@@ -6049,9 +5441,7 @@ func (s *Server) OperatorDispatch(input string) {
 	}
 // L85: Closes the current block and returns control to the surrounding scope.
 }
-// L86: Blank line that separates logical sections and keeps the file readable.
 
-// L87: Source comment carried through from the code; it documents intent for the lines that follow.
 // operatorSend writes a message to the operator's output (typically stdout).
 // L88: Declares the `operatorSend` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorSend(msg string) {
@@ -6063,11 +5453,8 @@ func (s *Server) operatorSend(msg string) {
 	}
 // L92: Closes the current block and returns control to the surrounding scope.
 }
-// L93: Blank line that separates logical sections and keeps the file readable.
 
-// L94: Source comment carried through from the code; it documents intent for the lines that follow.
 // ---------- operator command implementations ----------
-// L95: Blank line that separates logical sections and keeps the file readable.
 
 // L96: Declares the `operatorCmdList` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdList() {
@@ -6081,9 +5468,7 @@ func (s *Server) operatorCmdList() {
 		idle time.Duration
 // L101: Closes the struct definition after listing all of its fields.
 	}
-// L102: Blank line that separates logical sections and keeps the file readable.
 
-// L103: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Collect sorted room names
 // L104: Creates `roomNames` from the result of `make`, capturing fresh state for the rest of this scope.
 	roomNames := make([]string, 0, len(s.rooms))
@@ -6093,7 +5478,6 @@ func (s *Server) operatorCmdList() {
 		roomNames = append(roomNames, rn)
 // L107: Closes the current block and returns control to the surrounding scope.
 	}
-// L108: Source comment carried through from the code; it documents intent for the lines that follow.
 	// insertion sort
 // L109: Starts a loop controlled by `i := 1; i < len(roomNames); i++`, repeating until the loop condition or range is exhausted.
 	for i := 1; i < len(roomNames); i++ {
@@ -6113,7 +5497,6 @@ func (s *Server) operatorCmdList() {
 		roomNames[j+1] = key
 // L117: Closes the current block and returns control to the surrounding scope.
 	}
-// L118: Blank line that separates logical sections and keeps the file readable.
 
 // L119: Defines the `roomData` struct, which groups related state that this package manages together.
 	type roomData struct {
@@ -6139,7 +5522,6 @@ func (s *Server) operatorCmdList() {
 			entries = append(entries, entry{name: n, idle: time.Since(cl.GetLastActivity()).Truncate(time.Second)})
 // L130: Closes the current block and returns control to the surrounding scope.
 		}
-// L131: Source comment carried through from the code; it documents intent for the lines that follow.
 		// sort entries
 // L132: Starts a loop controlled by `i := 1; i < len(entries); i++`, repeating until the loop condition or range is exhausted.
 		for i := 1; i < len(entries); i++ {
@@ -6173,7 +5555,6 @@ func (s *Server) operatorCmdList() {
 	}
 // L147: Calls `s.mu.RUnlock` here for its side effects or returned value in the surrounding control flow.
 	s.mu.RUnlock()
-// L148: Blank line that separates logical sections and keeps the file readable.
 
 // L149: Starts a loop controlled by `_, rd := range rooms`, repeating until the loop condition or range is exhausted.
 	for _, rd := range rooms {
@@ -6195,7 +5576,6 @@ func (s *Server) operatorCmdList() {
 	}
 // L158: Closes the current block and returns control to the surrounding scope.
 }
-// L159: Blank line that separates logical sections and keeps the file readable.
 
 // L160: Declares the `operatorCmdHelp` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdHelp() {
@@ -6211,7 +5591,6 @@ func (s *Server) operatorCmdHelp() {
 	}
 // L166: Closes the current block and returns control to the surrounding scope.
 }
-// L167: Blank line that separates logical sections and keeps the file readable.
 
 // L168: Declares the `operatorCmdKick` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdKick(args string) {
@@ -6227,7 +5606,6 @@ func (s *Server) operatorCmdKick(args string) {
 	target := s.GetClient(args)
 // L174: Evaluates `target == nil` and enters the guarded branch only when that condition holds.
 	if target == nil {
-// L175: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Fallback: treat args as IP and search queued users (operator can see IPs via /list)
 // L176: Creates `removed` from the result of `s.RemoveFromQueueByIP`, capturing fresh state for the rest of this scope.
 		removed := s.RemoveFromQueueByIP(args)
@@ -6255,7 +5633,6 @@ func (s *Server) operatorCmdKick(args string) {
 		return
 // L188: Closes the current block and returns control to the surrounding scope.
 	}
-// L189: Blank line that separates logical sections and keeps the file readable.
 
 // L190: Creates `targetIP` as a new local binding so later lines can reuse this computed value.
 	targetIP := target.IP
@@ -6265,7 +5642,6 @@ func (s *Server) operatorCmdKick(args string) {
 	target.ForceDisconnectReason("kicked")
 // L193: Calls `s.RemoveClient` here for its side effects or returned value in the surrounding control flow.
 	s.RemoveClient(args)
-// L194: Blank line that separates logical sections and keeps the file readable.
 
 // L195: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -6297,7 +5673,6 @@ func (s *Server) operatorCmdKick(args string) {
 	s.operatorSend(args + " has been kicked.\n")
 // L209: Closes the current block and returns control to the surrounding scope.
 }
-// L210: Blank line that separates logical sections and keeps the file readable.
 
 // L211: Declares the `operatorCmdBan` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdBan(args string) {
@@ -6313,7 +5688,6 @@ func (s *Server) operatorCmdBan(args string) {
 	target := s.GetClient(args)
 // L217: Evaluates `target == nil` and enters the guarded branch only when that condition holds.
 	if target == nil {
-// L218: Source comment carried through from the code; it documents intent for the lines that follow.
 		// Fallback: treat args as IP and search queued users (operator can see IPs via /list)
 // L219: Creates `removed` from the result of `s.RemoveFromQueueByIP`, capturing fresh state for the rest of this scope.
 		removed := s.RemoveFromQueueByIP(args)
@@ -6341,7 +5715,6 @@ func (s *Server) operatorCmdBan(args string) {
 		return
 // L231: Closes the current block and returns control to the surrounding scope.
 	}
-// L232: Blank line that separates logical sections and keeps the file readable.
 
 // L233: Creates `targetIP` as a new local binding so later lines can reuse this computed value.
 	targetIP := target.IP
@@ -6353,7 +5726,6 @@ func (s *Server) operatorCmdBan(args string) {
 	target.ForceDisconnectReason("banned")
 // L237: Calls `s.RemoveClient` here for its side effects or returned value in the surrounding control flow.
 	s.RemoveClient(args)
-// L238: Blank line that separates logical sections and keeps the file readable.
 
 // L239: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -6379,13 +5751,9 @@ func (s *Server) operatorCmdBan(args string) {
 	target.Close()
 // L250: Calls `s.AddBanIP` here for its side effects or returned value in the surrounding control flow.
 	s.AddBanIP(targetIP)
-// L251: Blank line that separates logical sections and keeps the file readable.
 
-// L252: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Disconnect all other active clients sharing the banned IP (NAT scenario).
-// L253: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Operator is on terminal, not a TCP client, so exclude nobody ("").
-// L254: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Track rooms that opened slots for queue admission.
 // L255: Creates `roomsOpened` as a new local binding so later lines can reuse this computed value.
 	roomsOpened := map[string]int{targetRoom: 1}
@@ -6427,9 +5795,7 @@ func (s *Server) operatorCmdBan(args string) {
 		roomsOpened[ccRoom]++
 // L274: Closes the current block and returns control to the surrounding scope.
 	}
-// L275: Blank line that separates logical sections and keeps the file readable.
 
-// L276: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Remove queued users from the banned IP
 // L277: Creates `queuedRemoved` from the result of `s.RemoveFromQueueByIP`, capturing fresh state for the rest of this scope.
 	queuedRemoved := s.RemoveFromQueueByIP(targetIP)
@@ -6441,7 +5807,6 @@ func (s *Server) operatorCmdBan(args string) {
 		qc.Close()
 // L281: Closes the current block and returns control to the surrounding scope.
 	}
-// L282: Blank line that separates logical sections and keeps the file readable.
 
 // L283: Starts a loop controlled by `rn, count := range roomsOpened`, repeating until the loop condition or range is exhausted.
 	for rn, count := range roomsOpened {
@@ -6457,7 +5822,6 @@ func (s *Server) operatorCmdBan(args string) {
 	s.operatorSend(args + " has been banned.\n")
 // L289: Closes the current block and returns control to the surrounding scope.
 }
-// L290: Blank line that separates logical sections and keeps the file readable.
 
 // L291: Declares the `operatorCmdMute` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdMute(args string) {
@@ -6487,7 +5851,6 @@ func (s *Server) operatorCmdMute(args string) {
 		return
 // L304: Closes the current block and returns control to the surrounding scope.
 	}
-// L305: Blank line that separates logical sections and keeps the file readable.
 
 // L306: Calls `target.SetMuted` here for its side effects or returned value in the surrounding control flow.
 	target.SetMuted(true)
@@ -6513,7 +5876,6 @@ func (s *Server) operatorCmdMute(args string) {
 	s.operatorSend(args + " has been muted.\n")
 // L317: Closes the current block and returns control to the surrounding scope.
 }
-// L318: Blank line that separates logical sections and keeps the file readable.
 
 // L319: Declares the `operatorCmdUnmute` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdUnmute(args string) {
@@ -6543,7 +5905,6 @@ func (s *Server) operatorCmdUnmute(args string) {
 		return
 // L332: Closes the current block and returns control to the surrounding scope.
 	}
-// L333: Blank line that separates logical sections and keeps the file readable.
 
 // L334: Calls `target.SetMuted` here for its side effects or returned value in the surrounding control flow.
 	target.SetMuted(false)
@@ -6569,7 +5930,6 @@ func (s *Server) operatorCmdUnmute(args string) {
 	s.operatorSend(args + " has been unmuted.\n")
 // L345: Closes the current block and returns control to the surrounding scope.
 }
-// L346: Blank line that separates logical sections and keeps the file readable.
 
 // L347: Declares the `operatorCmdAnnounce` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdAnnounce(args string) {
@@ -6581,7 +5941,6 @@ func (s *Server) operatorCmdAnnounce(args string) {
 		return
 // L351: Closes the current block and returns control to the surrounding scope.
 	}
-// L352: Source comment carried through from the code; it documents intent for the lines that follow.
 	// Log announcement to all rooms
 // L353: Starts a loop controlled by `_, rn := range s.GetRoomNames()`, repeating until the loop condition or range is exhausted.
 	for _, rn := range s.GetRoomNames() {
@@ -6607,7 +5966,6 @@ func (s *Server) operatorCmdAnnounce(args string) {
 	s.operatorSend("Announcement sent.\n")
 // L364: Closes the current block and returns control to the surrounding scope.
 }
-// L365: Blank line that separates logical sections and keeps the file readable.
 
 // L366: Declares the `operatorCmdPromote` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdPromote(args string) {
@@ -6643,7 +6001,6 @@ func (s *Server) operatorCmdPromote(args string) {
 	s.AddAdmin(args)
 // L382: Calls `target.Send` here for its side effects or returned value in the surrounding control flow.
 	target.Send("You have been promoted to admin.\n")
-// L383: Blank line that separates logical sections and keeps the file readable.
 
 // L384: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -6667,7 +6024,6 @@ func (s *Server) operatorCmdPromote(args string) {
 	s.operatorSend(args + " has been promoted to admin.\n")
 // L394: Closes the current block and returns control to the surrounding scope.
 }
-// L395: Blank line that separates logical sections and keeps the file readable.
 
 // L396: Declares the `operatorCmdDemote` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdDemote(args string) {
@@ -6703,7 +6059,6 @@ func (s *Server) operatorCmdDemote(args string) {
 	s.RemoveAdmin(args)
 // L412: Calls `target.Send` here for its side effects or returned value in the surrounding control flow.
 	target.Send("Your admin privileges have been revoked.\n")
-// L413: Blank line that separates logical sections and keeps the file readable.
 
 // L414: Creates `modMsg` as a new local binding so later lines can reuse this computed value.
 	modMsg := models.Message{
@@ -6727,7 +6082,6 @@ func (s *Server) operatorCmdDemote(args string) {
 	s.operatorSend(args + " has been demoted.\n")
 // L424: Closes the current block and returns control to the surrounding scope.
 }
-// L425: Blank line that separates logical sections and keeps the file readable.
 
 // L426: Declares the `operatorCmdRooms` method on `s *Server`, creating a reusable behavior entrypoint tied to that receiver state.
 func (s *Server) operatorCmdRooms() {
