@@ -19,8 +19,7 @@ type Logger struct {
 	closed  bool
 }
 
-// New creates a Logger that writes to the given directory.
-// Creates the directory if it does not exist.
+// New creates a logger rooted at logsDir and prepares the directory for daily log files.
 func New(logsDir string) (*Logger, error) {
 	if err := os.MkdirAll(logsDir, 0700); err != nil {
 		return nil, err
@@ -28,8 +27,7 @@ func New(logsDir string) (*Logger, error) {
 	return &Logger{logsDir: logsDir}, nil
 }
 
-// Log writes a message to the daily log file. Thread-safe and nil-safe.
-// After Close is called, Log is a no-op (prevents file reopening by late goroutines).
+// Log appends one message to the current day log file, switching files when the date changes.
 func (l *Logger) Log(msg models.Message) {
 	if l == nil {
 		return
@@ -90,6 +88,7 @@ func FormatDate(t time.Time) string {
 	return formatDate(t)
 }
 
+// ensureFile opens the file for the requested date so writes land in the correct daily log.
 func (l *Logger) ensureFile(date string) error {
 	if l.curDate == date && l.file != nil {
 		return nil
@@ -108,6 +107,7 @@ func (l *Logger) ensureFile(date string) error {
 	return nil
 }
 
+// formatDate formats a timestamp as YYYY-MM-DD for internal file selection.
 func formatDate(t time.Time) string {
 	return fmt.Sprintf("%04d-%02d-%02d", t.Year(), int(t.Month()), t.Day())
 }

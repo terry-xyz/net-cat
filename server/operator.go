@@ -12,9 +12,7 @@ import (
 
 // ---------- operator terminal ----------
 
-// StartOperator reads commands from the given reader (typically os.Stdin)
-// and dispatches them with full operator authority. Blocks until the reader
-// is exhausted or the server shuts down.
+// StartOperator reads terminal input and feeds it through the operator command dispatcher until shutdown.
 func (s *Server) StartOperator(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 4096), 1048576)
@@ -93,6 +91,7 @@ func (s *Server) operatorSend(msg string) {
 
 // ---------- operator command implementations ----------
 
+// operatorCmdList prints connected and queued users grouped by room for the server operator terminal.
 func (s *Server) operatorCmdList() {
 	s.mu.RLock()
 	type entry struct {
@@ -157,6 +156,7 @@ func (s *Server) operatorCmdList() {
 	}
 }
 
+// operatorCmdHelp prints the command set available to the server operator.
 func (s *Server) operatorCmdHelp() {
 	s.operatorSend("Available commands:\n")
 	for _, name := range cmd.CommandOrder {
@@ -165,6 +165,7 @@ func (s *Server) operatorCmdHelp() {
 	}
 }
 
+// operatorCmdKick kicks a connected user or same-IP queued clients from the operator terminal.
 func (s *Server) operatorCmdKick(args string) {
 	if args == "" {
 		s.operatorSend("Missing target. Usage: /kick <name>\n")
@@ -208,6 +209,7 @@ func (s *Server) operatorCmdKick(args string) {
 	s.operatorSend(args + " has been kicked.\n")
 }
 
+// operatorCmdBan bans a user plus same-IP connections and queued clients from the operator terminal.
 func (s *Server) operatorCmdBan(args string) {
 	if args == "" {
 		s.operatorSend("Missing target. Usage: /ban <name>\n")
@@ -251,7 +253,7 @@ func (s *Server) operatorCmdBan(args string) {
 
 	// Disconnect all other active clients sharing the banned IP (NAT scenario).
 	// Operator is on terminal, not a TCP client, so exclude nobody ("").
-	// Track rooms that opened slots for queue admission.
+	// Count one opened slot per disconnected user so each room admits the correct number of queued clients.
 	roomsOpened := map[string]int{targetRoom: 1}
 	collateral := s.GetClientsByIP(bannedHost, "")
 	for _, cc := range collateral {
@@ -288,6 +290,7 @@ func (s *Server) operatorCmdBan(args string) {
 	s.operatorSend(args + " has been banned.\n")
 }
 
+// operatorCmdMute marks a connected user as muted from the operator terminal.
 func (s *Server) operatorCmdMute(args string) {
 	if args == "" {
 		s.operatorSend("Missing target. Usage: /mute <name>\n")
@@ -316,6 +319,7 @@ func (s *Server) operatorCmdMute(args string) {
 	s.operatorSend(args + " has been muted.\n")
 }
 
+// operatorCmdUnmute removes the muted flag from a connected user from the operator terminal.
 func (s *Server) operatorCmdUnmute(args string) {
 	if args == "" {
 		s.operatorSend("Missing target. Usage: /unmute <name>\n")
@@ -344,12 +348,13 @@ func (s *Server) operatorCmdUnmute(args string) {
 	s.operatorSend(args + " has been unmuted.\n")
 }
 
+// operatorCmdAnnounce broadcasts a server-wide announcement from the operator terminal.
 func (s *Server) operatorCmdAnnounce(args string) {
 	if len(strings.TrimSpace(args)) == 0 {
 		s.operatorSend("Usage: /announce <message>\n")
 		return
 	}
-	// Log announcement to all rooms
+	// Record in every room so reconnecting users still see the operator announcement in history.
 	for _, rn := range s.GetRoomNames() {
 		announceMsg := models.Message{
 			Timestamp: time.Now(),
@@ -363,6 +368,7 @@ func (s *Server) operatorCmdAnnounce(args string) {
 	s.operatorSend("Announcement sent.\n")
 }
 
+// operatorCmdPromote grants admin privileges from the operator terminal and persists the change.
 func (s *Server) operatorCmdPromote(args string) {
 	if args == "" {
 		s.operatorSend("Missing target. Usage: /promote <name>\n")
@@ -393,6 +399,7 @@ func (s *Server) operatorCmdPromote(args string) {
 	s.operatorSend(args + " has been promoted to admin.\n")
 }
 
+// operatorCmdDemote removes admin privileges from the operator terminal and persists the change.
 func (s *Server) operatorCmdDemote(args string) {
 	if args == "" {
 		s.operatorSend("Missing target. Usage: /demote <name>\n")
@@ -423,6 +430,7 @@ func (s *Server) operatorCmdDemote(args string) {
 	s.operatorSend(args + " has been demoted.\n")
 }
 
+// operatorCmdRooms lists room occupancy and queued clients for the operator terminal.
 func (s *Server) operatorCmdRooms() {
 	roomNames := s.GetRoomNames()
 	s.operatorSend("Available rooms:\n")

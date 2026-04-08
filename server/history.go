@@ -11,8 +11,7 @@ import (
 
 // ---------- history ----------
 
-// ClearHistory removes all in-memory history entries across all rooms.
-// Called at midnight to reset history for the new calendar day.
+// ClearHistory resets the in-memory server history while leaving the on-disk logs untouched.
 func (s *Server) ClearHistory() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -21,8 +20,7 @@ func (s *Server) ClearHistory() {
 	}
 }
 
-// AddHistory appends a message to the appropriate room's history.
-// If msg.Room is empty, uses DefaultRoom.
+// AddHistory appends a message to the in-memory history snapshot used for reconnect recovery.
 func (s *Server) AddHistory(msg models.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -45,11 +43,7 @@ func (s *Server) GetHistory() []models.Message {
 	return all
 }
 
-// RecoverHistory loads today's log file and reconstructs the in-memory history.
-// Only called on startup so that clients connecting after a restart see prior events.
-// Server events are excluded (not user-visible). Corrupt lines are skipped with warnings.
-// Messages are routed to the correct room based on the @room tag; old lines without
-// a room tag are assigned to the DefaultRoom.
+// RecoverHistory rebuilds the current-day in-memory history from the latest log file when the server starts.
 func (s *Server) RecoverHistory() {
 	if s.Logger == nil {
 		return
@@ -91,7 +85,7 @@ func (s *Server) RecoverHistory() {
 		if msg.Type == models.MsgServerEvent {
 			continue
 		}
-		// Route to correct room; old logs without @room go to DefaultRoom
+		// Old logs may not have a room tag, so default them into the room that existed before multi-room support.
 		roomName := msg.Room
 		if roomName == "" {
 			roomName = s.DefaultRoom

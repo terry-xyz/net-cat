@@ -2,6 +2,7 @@ package main
 
 import "testing"
 
+// Test_isValidPort verifies the scenario described by its name.
 func Test_isValidPort(t *testing.T) {
 	tests := []struct {
 		input string

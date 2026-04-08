@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// TestNew_CreatesDirectory verifies the scenario described by its name.
 func TestNew_CreatesDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	_, err := New(dir)
@@ -26,6 +27,7 @@ func TestNew_CreatesDirectory(t *testing.T) {
 	}
 }
 
+// TestLogFileNaming verifies the scenario described by its name.
 func TestLogFileNaming(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -48,6 +50,7 @@ func TestLogFileNaming(t *testing.T) {
 	}
 }
 
+// TestLogChatMessage verifies the scenario described by its name.
 func TestLogChatMessage(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -74,6 +77,7 @@ func TestLogChatMessage(t *testing.T) {
 	}
 }
 
+// TestLogJoinEvent verifies the scenario described by its name.
 func TestLogJoinEvent(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -95,6 +99,7 @@ func TestLogJoinEvent(t *testing.T) {
 	}
 }
 
+// TestLogLeaveEventVoluntary verifies the scenario described by its name.
 func TestLogLeaveEventVoluntary(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -117,6 +122,7 @@ func TestLogLeaveEventVoluntary(t *testing.T) {
 	}
 }
 
+// TestLogLeaveEventDrop verifies the scenario described by its name.
 func TestLogLeaveEventDrop(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -139,6 +145,7 @@ func TestLogLeaveEventDrop(t *testing.T) {
 	}
 }
 
+// TestLogLeaveEventKicked verifies the scenario described by its name.
 func TestLogLeaveEventKicked(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -161,6 +168,7 @@ func TestLogLeaveEventKicked(t *testing.T) {
 	}
 }
 
+// TestLogModerationActions verifies the scenario described by its name.
 func TestLogModerationActions(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -202,6 +210,7 @@ func TestLogModerationActions(t *testing.T) {
 	}
 }
 
+// TestLogAnnouncement verifies the scenario described by its name.
 func TestLogAnnouncement(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -224,6 +233,7 @@ func TestLogAnnouncement(t *testing.T) {
 	}
 }
 
+// TestLogServerEvent verifies the scenario described by its name.
 func TestLogServerEvent(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -253,6 +263,7 @@ func TestLogServerEvent(t *testing.T) {
 	}
 }
 
+// TestSameDayAppend verifies the scenario described by its name.
 func TestSameDayAppend(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l1, err := New(dir)
@@ -291,6 +302,7 @@ func TestSameDayAppend(t *testing.T) {
 	}
 }
 
+// TestConcurrentLogWrites verifies the scenario described by its name.
 func TestConcurrentLogWrites(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -324,6 +336,7 @@ func TestConcurrentLogWrites(t *testing.T) {
 	}
 }
 
+// TestNilLoggerSafe verifies the scenario described by its name.
 func TestNilLoggerSafe(t *testing.T) {
 	var l *Logger
 
@@ -338,6 +351,7 @@ func TestNilLoggerSafe(t *testing.T) {
 	}
 }
 
+// TestLogLineSelfContained verifies the scenario described by its name.
 func TestLogLineSelfContained(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -380,6 +394,7 @@ func TestLogLineSelfContained(t *testing.T) {
 	}
 }
 
+// TestFormatDate verifies the scenario described by its name.
 func TestFormatDate(t *testing.T) {
 	ts := time.Date(2026, 2, 5, 10, 30, 0, 0, time.Local)
 	got := FormatDate(ts)
@@ -388,6 +403,7 @@ func TestFormatDate(t *testing.T) {
 	}
 }
 
+// TestLogDayBoundarySwitchesFile verifies the scenario described by its name.
 func TestLogDayBoundarySwitchesFile(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -433,6 +449,7 @@ func TestLogDayBoundarySwitchesFile(t *testing.T) {
 	}
 }
 
+// TestLogDayBoundaryNoLostEntries verifies the scenario described by its name.
 func TestLogDayBoundaryNoLostEntries(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -478,6 +495,7 @@ func TestLogDayBoundaryNoLostEntries(t *testing.T) {
 	}
 }
 
+// TestLogPriorDayFileUnmodified verifies the scenario described by its name.
 func TestLogPriorDayFileUnmodified(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")
 	l, err := New(dir)
@@ -523,6 +541,7 @@ func TestLogPriorDayFileUnmodified(t *testing.T) {
 // (e.g. permission denied), the logger degrades gracefully: it prints an error to
 // stderr but does NOT panic or crash. As required by spec 12 edge case:
 // "Log file permissions prevent writing: error to console, chat continues."
+// TestLogWritePermissionDenied verifies the scenario described by its name.
 func TestLogWritePermissionDenied(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod-based permission test not reliable on Windows")

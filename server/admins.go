@@ -11,6 +11,7 @@ import (
 
 // LoadAdmins reads admins.json from disk. Missing or corrupt file is handled
 // gracefully: the server starts with no saved admins and a console warning.
+// LoadAdmins restores persisted admin names from disk so reconnecting admins regain privileges automatically.
 func (s *Server) LoadAdmins() {
 	path := s.adminsFile
 	if path == "" {
@@ -40,7 +41,7 @@ func (s *Server) LoadAdmins() {
 }
 
 // SaveAdmins writes the current admin list to admins.json atomically.
-// Writes to a temp file then renames for crash safety.
+// SaveAdmins writes the current admin list through a temp file so crashes do not leave a partial JSON file behind.
 func (s *Server) SaveAdmins() {
 	path := s.adminsFile
 	if path == "" {

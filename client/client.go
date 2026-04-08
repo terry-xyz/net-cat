@@ -10,17 +10,17 @@ import (
 
 const (
 	maxLineLength     = 1048576 // 1 MB scanner buffer limit
-	msgChanSize       = 4096   // large enough for echo messages of max-length lines
-	maxInteractiveBuf = 4096   // max partial input tracked for redraw
+	msgChanSize       = 4096    // large enough for echo messages of max-length lines
+	maxInteractiveBuf = 4096    // max partial input tracked for redraw
 )
 
 // Write-message types for the writeLoop channel.
 const (
 	wmMessage   = iota // broadcast/notification: in echoMode clear+redraw; else raw write
-	wmPrompt          // set prompt, clear inputBuf, write data
-	wmEcho            // append char to inputBuf, write char
-	wmBackspace       // remove last from inputBuf, write \b \b
-	wmNewline         // clear inputBuf/prompt, write \r\n
+	wmPrompt           // set prompt, clear inputBuf, write data
+	wmEcho             // append char to inputBuf, write char
+	wmBackspace        // remove last from inputBuf, write \b \b
+	wmNewline          // clear inputBuf/prompt, write \r\n
 )
 
 // writeMsg is the internal message type for the write channel.
@@ -86,10 +86,12 @@ func (c *Client) Send(msg string) {
 
 // SendPrompt enqueues a prompt message and tells the writeLoop to update the
 // tracked prompt (clears inputBuf). Used after the client submits a line.
+// SendPrompt enqueues a prompt update so writeLoop can redraw the current input line consistently.
 func (c *Client) SendPrompt(prompt string) {
 	c.enqueue(writeMsg{data: prompt, msgType: wmPrompt})
 }
 
+// enqueue drops writes when the client is closing or overloaded so one slow socket cannot stall broadcasts.
 func (c *Client) enqueue(m writeMsg) {
 	select {
 	case <-c.done:
@@ -106,6 +108,7 @@ func (c *Client) enqueue(m writeMsg) {
 
 // ReadLine blocks until a full line is available. Strips \r\n → content only.
 // Used during onboarding (before echoMode is enabled).
+// ReadLine reads one onboarding line before interactive echo mode switches the connection to byte-by-byte input.
 func (c *Client) ReadLine() (string, error) {
 	if c.scanner.Scan() {
 		return c.scanner.Text(), nil
@@ -142,6 +145,7 @@ func (c *Client) Done() <-chan struct{} {
 // ResetScanner creates a fresh scanner for the connection.
 // Used after queue admission where the scanner may be in an error state
 // due to a read deadline used to cancel the monitoring goroutine.
+// ResetScanner rebuilds the scanner after queue monitoring uses a read deadline that can leave the old scanner unusable.
 func (c *Client) ResetScanner() {
 	scanner := bufio.NewScanner(c.Conn)
 	scanner.Buffer(make([]byte, 4096), maxLineLength)
@@ -164,6 +168,7 @@ func (c *Client) GetLastInput() time.Time {
 
 // SetDisconnectReason atomically sets the disconnect reason if not already set.
 // Used to distinguish voluntary, dropped, kicked, and banned disconnects.
+// SetDisconnectReason keeps the first disconnect reason so deferred cleanup can tell drops from moderation actions.
 func (c *Client) SetDisconnectReason(reason string) {
 	c.mu.Lock()
 	if c.disconnectReason == "" {
@@ -233,6 +238,7 @@ func (c *Client) IsAdmin() bool {
 // writeLoop drains the message channel and writes to the connection.
 // It is the sole writer to Conn (except heartbeat null-byte probes).
 // In echoMode it preserves the client's partial input across incoming messages.
+// writeLoop serializes normal socket writes so prompts and partially typed input never interleave.
 func (c *Client) writeLoop() {
 	for {
 		select {
@@ -279,6 +285,7 @@ func (c *Client) writeLoop() {
 // then redraws the prompt and partial input. All output is batched into a single
 // Conn.Write to avoid partial-write blocking on synchronous pipes. Only called
 // from writeLoop.
+// writeWithContinuity clears the current input line, prints the incoming message, then redraws the prompt and buffered input.
 func (c *Client) writeWithContinuity(msg string) {
 	hasPrompt := len(c.prompt) > 0
 	hasInput := len(c.inputBuf) > 0
@@ -323,6 +330,7 @@ func (c *Client) SetEchoMode(enabled bool) {
 // commands through the writeLoop channel. This avoids direct Conn writes from
 // the handler goroutine, preventing deadlocks with synchronous pipes.
 // Returns the complete line (without newline) when Enter is pressed.
+// ReadLineInteractive reads one byte at a time so incoming messages can redraw around partially typed user input.
 func (c *Client) ReadLineInteractive() (string, error) {
 	buf := make([]byte, 1)
 	var line []byte

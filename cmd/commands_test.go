@@ -2,6 +2,7 @@ package cmd
 
 import "testing"
 
+// TestParseCommandNonCommand verifies the scenario described by its name.
 func TestParseCommandNonCommand(t *testing.T) {
 	tests := []string{"hello", "", "not a /command", "hello /world"}
 	for _, input := range tests {
@@ -12,6 +13,7 @@ func TestParseCommandNonCommand(t *testing.T) {
 	}
 }
 
+// TestParseCommandLoneSlash verifies the scenario described by its name.
 func TestParseCommandLoneSlash(t *testing.T) {
 	name, args, isCmd := ParseCommand("/")
 	if !isCmd {
@@ -25,6 +27,7 @@ func TestParseCommandLoneSlash(t *testing.T) {
 	}
 }
 
+// TestParseCommandSimple verifies the scenario described by its name.
 func TestParseCommandSimple(t *testing.T) {
 	name, args, isCmd := ParseCommand("/list")
 	if !isCmd || name != "list" || args != "" {
@@ -32,6 +35,7 @@ func TestParseCommandSimple(t *testing.T) {
 	}
 }
 
+// TestParseCommandWithArgs verifies the scenario described by its name.
 func TestParseCommandWithArgs(t *testing.T) {
 	name, args, isCmd := ParseCommand("/kick alice")
 	if !isCmd || name != "kick" || args != "alice" {
@@ -39,6 +43,7 @@ func TestParseCommandWithArgs(t *testing.T) {
 	}
 }
 
+// TestParseCommandExcessWhitespace verifies the scenario described by its name.
 func TestParseCommandExcessWhitespace(t *testing.T) {
 	name, args, isCmd := ParseCommand("/whisper    bob    hello")
 	if !isCmd || name != "whisper" {
@@ -49,6 +54,7 @@ func TestParseCommandExcessWhitespace(t *testing.T) {
 	}
 }
 
+// TestParseCommandCaseSensitive verifies the scenario described by its name.
 func TestParseCommandCaseSensitive(t *testing.T) {
 	// /LIST should be treated as a command but not match any known command
 	name, _, isCmd := ParseCommand("/LIST")
@@ -63,6 +69,7 @@ func TestParseCommandCaseSensitive(t *testing.T) {
 	}
 }
 
+// TestAllCommandsRegistered verifies the scenario described by its name.
 func TestAllCommandsRegistered(t *testing.T) {
 	expected := []string{"list", "quit", "name", "whisper", "help",
 		"kick", "ban", "mute", "unmute", "announce",
@@ -74,6 +81,7 @@ func TestAllCommandsRegistered(t *testing.T) {
 	}
 }
 
+// TestUserCommandCount verifies the scenario described by its name.
 func TestUserCommandCount(t *testing.T) {
 	count := 0
 	for _, def := range Commands {
@@ -86,6 +94,7 @@ func TestUserCommandCount(t *testing.T) {
 	}
 }
 
+// TestPrivilegeLevels verifies the scenario described by its name.
 func TestPrivilegeLevels(t *testing.T) {
 	if GetPrivilegeLevel(false, false) != PrivUser {
 		t.Error("non-admin non-operator should be user")
@@ -101,6 +110,7 @@ func TestPrivilegeLevels(t *testing.T) {
 	}
 }
 
+// TestPartialMatchNotRecognized verifies the scenario described by its name.
 func TestPartialMatchNotRecognized(t *testing.T) {
 	name, _, _ := ParseCommand("/lis")
 	if _, exists := Commands[name]; exists {

@@ -20,6 +20,7 @@ import (
 // Start server, 3 clients send messages, stop; restart server, new client sees
 // all prior messages in history.
 
+// TestRecoveryE2EBasicThreeClients verifies the scenario described by its name.
 func TestRecoveryE2EBasicThreeClients(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -77,6 +78,7 @@ func TestRecoveryE2EBasicThreeClients(t *testing.T) {
 // ==================== Test 2: Three Restarts - History Accumulates ====================
 // 3 restarts in one day: history accumulates across all sessions, no duplicates.
 
+// TestRecoveryE2EThreeRestarts verifies the scenario described by its name.
 func TestRecoveryE2EThreeRestarts(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -136,6 +138,7 @@ func TestRecoveryE2EThreeRestarts(t *testing.T) {
 // ==================== Test 3: Fully Corrupted Log File ====================
 // Server starts with empty history, no crash.
 
+// TestRecoveryE2ECorruptedLogFile verifies the scenario described by its name.
 func TestRecoveryE2ECorruptedLogFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	logsDir := filepath.Join(tmpDir, "logs")
@@ -178,6 +181,7 @@ func TestRecoveryE2ECorruptedLogFile(t *testing.T) {
 // ==================== Test 4: Partially Corrupted Log File ====================
 // Mix of valid and invalid lines: server recovers valid entries, skips corrupt ones.
 
+// TestRecoveryE2EPartiallyCorruptedLogFile verifies the scenario described by its name.
 func TestRecoveryE2EPartiallyCorruptedLogFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	logsDir := filepath.Join(tmpDir, "logs")
@@ -242,6 +246,7 @@ func TestRecoveryE2EPartiallyCorruptedLogFile(t *testing.T) {
 // Log file from a previous day exists but no current-day log: server starts
 // with empty history, prior-day file untouched.
 
+// TestRecoveryE2EPreviousDayLogOnly verifies the scenario described by its name.
 func TestRecoveryE2EPreviousDayLogOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 	logsDir := filepath.Join(tmpDir, "logs")
@@ -291,6 +296,7 @@ func TestRecoveryE2EPreviousDayLogOnly(t *testing.T) {
 // ==================== Test 6: History Includes Join/Leave and Admin Actions ====================
 // Recovered history contains join/leave events, kicks, and announcements.
 
+// TestRecoveryE2EJoinLeaveAndAdminActions verifies the scenario described by its name.
 func TestRecoveryE2EJoinLeaveAndAdminActions(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -352,14 +358,14 @@ func TestRecoveryE2EJoinLeaveAndAdminActions(t *testing.T) {
 	stripped := stripAnsi(historyText)
 
 	checks := map[string]string{
-		"alice has joined":          "alice's join event",
-		"bob has joined":            "bob's join event",
-		"hello bob":                 "alice's chat message",
-		"alice was promoted":        "promotion event",
-		"bob was kicked by alice":   "kick event",
-		"carol has joined":          "carol's join event",
-		"carol has left":            "carol's leave event",
-		"test announcement":         "announcement",
+		"alice has joined":        "alice's join event",
+		"bob has joined":          "bob's join event",
+		"hello bob":               "alice's chat message",
+		"alice was promoted":      "promotion event",
+		"bob was kicked by alice": "kick event",
+		"carol has joined":        "carol's join event",
+		"carol has left":          "carol's leave event",
+		"test announcement":       "announcement",
 	}
 	for expected, desc := range checks {
 		if !strings.Contains(stripped, expected) {
@@ -371,6 +377,7 @@ func TestRecoveryE2EJoinLeaveAndAdminActions(t *testing.T) {
 // ==================== Test 7: Recovered Timestamps Match Originals ====================
 // Recovered history entries are visually identical to live entries.
 
+// TestRecoveryE2ETimestampsMatchOriginals verifies the scenario described by its name.
 func TestRecoveryE2ETimestampsMatchOriginals(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -428,6 +435,7 @@ func TestRecoveryE2ETimestampsMatchOriginals(t *testing.T) {
 // Admin status from admins.json is restored; returning admin gets privileges back
 // and can perform admin actions immediately.
 
+// TestRecoveryE2EAdminRestoredAfterRestart verifies the scenario described by its name.
 func TestRecoveryE2EAdminRestoredAfterRestart(t *testing.T) {
 	tmpDir := t.TempDir()
 

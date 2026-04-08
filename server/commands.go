@@ -11,8 +11,10 @@ import (
 
 // ---------- chat messages ----------
 
+// handleChatMessage validates a chat line, records it in room history, and broadcasts it to the room.
 func (s *Server) handleChatMessage(c *client.Client, line string) {
 	if len(strings.TrimSpace(line)) == 0 {
+		// Empty input still gets a fresh prompt so the client stays in sync after pressing Enter.
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
@@ -93,6 +95,7 @@ func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
 
 // ---------- /list (room-scoped) ----------
 
+// cmdList shows the requesting client who is present in their current room and how long each user has been idle.
 func (s *Server) cmdList(c *client.Client) {
 	roomName := c.Room
 	s.mu.RLock()
@@ -112,7 +115,7 @@ func (s *Server) cmdList(c *client.Client) {
 	}
 	s.mu.RUnlock()
 
-	// simple insertion sort
+	// Keep output deterministic without pulling in another dependency for a tiny room-local list.
 	for i := 1; i < len(entries); i++ {
 		key := entries[i]
 		j := i - 1
@@ -132,6 +135,7 @@ func (s *Server) cmdList(c *client.Client) {
 
 // ---------- /rooms ----------
 
+// cmdRooms lists all rooms with occupancy counts and marks the caller's current room.
 func (s *Server) cmdRooms(c *client.Client) {
 	roomNames := s.GetRoomNames()
 	c.Send("Available rooms:\n")
@@ -148,6 +152,7 @@ func (s *Server) cmdRooms(c *client.Client) {
 
 // ---------- /switch ----------
 
+// cmdSwitch moves a client to another room when the target room name is valid and has capacity.
 func (s *Server) cmdSwitch(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Usage: /switch <room>\n")
@@ -177,6 +182,7 @@ func (s *Server) cmdSwitch(c *client.Client, args string) {
 
 // ---------- /create ----------
 
+// cmdCreate creates a new room name on demand and switches the caller into it.
 func (s *Server) cmdCreate(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Usage: /create <room>\n")
@@ -204,8 +210,7 @@ func (s *Server) cmdCreate(c *client.Client, args string) {
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 
-// switchClientRoom moves a client from their current room to a new room,
-// handling leave/join broadcasts and history delivery.
+// switchClientRoom moves a client between rooms while preserving leave and join history for both sides.
 func (s *Server) switchClientRoom(c *client.Client, newRoom string) {
 	oldRoom := c.Room
 
@@ -247,6 +252,7 @@ func (s *Server) switchClientRoom(c *client.Client, newRoom string) {
 
 // ---------- /help (role-aware) ----------
 
+// cmdHelp prints the commands the caller is allowed to use at their current privilege level.
 func (s *Server) cmdHelp(c *client.Client) {
 	priv := cmd.GetPrivilegeLevel(c.IsAdmin(), false)
 	c.Send("Available commands:\n")
@@ -261,6 +267,7 @@ func (s *Server) cmdHelp(c *client.Client) {
 
 // ---------- /name ----------
 
+// cmdName validates a requested username change, updates indexes, and broadcasts the rename.
 func (s *Server) cmdName(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Usage: /name <newname>\n")
@@ -291,7 +298,7 @@ func (s *Server) cmdName(c *client.Client, args string) {
 		return
 	}
 
-	// Update admins.json if this client is an admin
+	// Persist the rename too, or the returning admin would lose auto-restore on their next reconnect.
 	if c.IsAdmin() {
 		s.RenameAdmin(oldName, newName)
 	}
@@ -309,6 +316,7 @@ func (s *Server) cmdName(c *client.Client, args string) {
 
 // ---------- /whisper (cross-room) ----------
 
+// cmdWhisper sends a private message directly to another connected user without entering room history.
 func (s *Server) cmdWhisper(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing recipient. Usage: /whisper <name> <message>\n")
@@ -354,6 +362,7 @@ func (s *Server) cmdWhisper(c *client.Client, args string) {
 
 // ---------- /kick (same-room only) ----------
 
+// cmdKick removes a same-room user, broadcasts the moderation event, and starts their reconnect cooldown.
 func (s *Server) cmdKick(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /kick <name>\n")
@@ -395,6 +404,7 @@ func (s *Server) cmdKick(c *client.Client, args string) {
 
 // ---------- /ban (global) ----------
 
+// cmdBan disconnects the target plus same-IP clients, removes queued peers on that IP, and blocks future reconnects.
 func (s *Server) cmdBan(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /ban <name>\n")
@@ -427,7 +437,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 	target.Close()
 	s.AddBanIP(targetIP)
 
-	// Disconnect all other active clients sharing the banned IP across all rooms.
+	// Track one opened slot per disconnected user so each affected room admits the right number of queued clients.
 	roomsOpened := map[string]int{targetRoom: 1}
 	collateral := s.GetClientsByIP(bannedHost, c.Username)
 	for _, cc := range collateral {
@@ -465,6 +475,7 @@ func (s *Server) cmdBan(c *client.Client, args string) {
 
 // ---------- /mute (global, broadcast to all rooms) ----------
 
+// cmdMute marks a user as unable to chat and broadcasts the moderation event to every room.
 func (s *Server) cmdMute(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /mute <name>\n")
@@ -498,6 +509,7 @@ func (s *Server) cmdMute(c *client.Client, args string) {
 
 // ---------- /unmute ----------
 
+// cmdUnmute restores a muted user's ability to send chat messages.
 func (s *Server) cmdUnmute(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /unmute <name>\n")
@@ -531,13 +543,14 @@ func (s *Server) cmdUnmute(c *client.Client, args string) {
 
 // ---------- /announce (server-wide) ----------
 
+// cmdAnnounce records an announcement in every room history and broadcasts it server-wide.
 func (s *Server) cmdAnnounce(c *client.Client, args string) {
 	if len(strings.TrimSpace(args)) == 0 {
 		c.Send("Usage: /announce <message>\n")
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return
 	}
-	// Log to all rooms
+	// Record in every room so late joiners see the announcement no matter where they connect.
 	for _, rn := range s.GetRoomNames() {
 		announceMsg := models.Message{
 			Timestamp: time.Now(),
@@ -553,6 +566,7 @@ func (s *Server) cmdAnnounce(c *client.Client, args string) {
 
 // ---------- /promote ----------
 
+// cmdPromote grants admin privileges to a connected user and persists that status for future reconnects.
 func (s *Server) cmdPromote(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /promote <name>\n")
@@ -588,6 +602,7 @@ func (s *Server) cmdPromote(c *client.Client, args string) {
 
 // ---------- /demote ----------
 
+// cmdDemote revokes a connected admin's privileges and removes them from persistent admin storage.
 func (s *Server) cmdDemote(c *client.Client, args string) {
 	if args == "" {
 		c.Send("Missing target. Usage: /demote <name>\n")

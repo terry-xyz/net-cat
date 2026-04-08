@@ -47,6 +47,7 @@ var CommandOrder = []string{
 
 // ParseCommand splits a /-prefixed input into command name and trimmed arguments.
 // Returns isCommand=false for non-command input.
+// ParseCommand splits slash-prefixed input into a command name and trimmed argument string.
 func ParseCommand(input string) (name string, args string, isCommand bool) {
 	if len(input) == 0 || input[0] != '/' {
 		return "", "", false

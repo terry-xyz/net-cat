@@ -8,6 +8,7 @@ import (
 
 var refTime = time.Date(2026, 2, 20, 15, 48, 41, 0, time.Local)
 
+// TestFormatTimestamp verifies the scenario described by its name.
 func TestFormatTimestamp(t *testing.T) {
 	got := FormatTimestamp(refTime)
 	want := "2026-02-20 15:48:41"
@@ -16,6 +17,7 @@ func TestFormatTimestamp(t *testing.T) {
 	}
 }
 
+// TestFormatTimestampZeroPadding verifies the scenario described by its name.
 func TestFormatTimestampZeroPadding(t *testing.T) {
 	// month=1, day=2, hour=3, min=4, sec=5 → all zero-padded
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.Local)
@@ -26,6 +28,7 @@ func TestFormatTimestampZeroPadding(t *testing.T) {
 	}
 }
 
+// TestFormatChat verifies the scenario described by its name.
 func TestFormatChat(t *testing.T) {
 	got := FormatChat(refTime, "alice", "hello")
 	want := "[2026-02-20 15:48:41][alice]:hello"
@@ -34,6 +37,7 @@ func TestFormatChat(t *testing.T) {
 	}
 }
 
+// TestFormatPrompt verifies the scenario described by its name.
 func TestFormatPrompt(t *testing.T) {
 	got := FormatPrompt(refTime, "alice")
 	want := "[2026-02-20 15:48:41][alice]:"
@@ -46,6 +50,7 @@ func TestFormatPrompt(t *testing.T) {
 	}
 }
 
+// TestFormatJoin verifies the scenario described by its name.
 func TestFormatJoin(t *testing.T) {
 	got := FormatJoin("alice")
 	want := "alice has joined our chat..."
@@ -54,6 +59,7 @@ func TestFormatJoin(t *testing.T) {
 	}
 }
 
+// TestFormatLeave verifies the scenario described by its name.
 func TestFormatLeave(t *testing.T) {
 	got := FormatLeave("alice")
 	want := "alice has left our chat..."
@@ -62,6 +68,7 @@ func TestFormatLeave(t *testing.T) {
 	}
 }
 
+// TestFormatNameChange verifies the scenario described by its name.
 func TestFormatNameChange(t *testing.T) {
 	got := FormatNameChange("OldName", "NewName")
 	want := "OldName changed their name to NewName"
@@ -70,6 +77,7 @@ func TestFormatNameChange(t *testing.T) {
 	}
 }
 
+// TestFormatAnnouncement verifies the scenario described by its name.
 func TestFormatAnnouncement(t *testing.T) {
 	got := FormatAnnouncement("Server maintenance at midnight")
 	want := "[ANNOUNCEMENT]: Server maintenance at midnight"
@@ -78,6 +86,7 @@ func TestFormatAnnouncement(t *testing.T) {
 	}
 }
 
+// TestFormatModeration verifies the scenario described by its name.
 func TestFormatModeration(t *testing.T) {
 	tests := []struct {
 		target, action, admin, want string
@@ -95,6 +104,7 @@ func TestFormatModeration(t *testing.T) {
 	}
 }
 
+// TestFormatWhisper verifies the scenario described by its name.
 func TestFormatWhisper(t *testing.T) {
 	recv := FormatWhisperReceive(refTime, "alice", "secret")
 	if recv != "[2026-02-20 15:48:41][PM from alice]: secret" {
@@ -106,6 +116,7 @@ func TestFormatWhisper(t *testing.T) {
 	}
 }
 
+// TestMessageDisplay verifies the scenario described by its name.
 func TestMessageDisplay(t *testing.T) {
 	tests := []struct {
 		msg  Message
@@ -128,6 +139,7 @@ func TestMessageDisplay(t *testing.T) {
 
 // ---------- log format round-trip ----------
 
+// TestLogFormatRoundTrip verifies the scenario described by its name.
 func TestLogFormatRoundTrip(t *testing.T) {
 	messages := []Message{
 		{Timestamp: refTime, Type: MsgChat, Sender: "alice", Content: "hello world", Room: "general"},
@@ -165,6 +177,7 @@ func TestLogFormatRoundTrip(t *testing.T) {
 	}
 }
 
+// TestFormatLogLineRoomTag verifies the scenario described by its name.
 func TestFormatLogLineRoomTag(t *testing.T) {
 	tests := []struct {
 		msg    Message
@@ -185,6 +198,7 @@ func TestFormatLogLineRoomTag(t *testing.T) {
 	}
 }
 
+// TestFormatLogLineServerEventNoRoom verifies the scenario described by its name.
 func TestFormatLogLineServerEventNoRoom(t *testing.T) {
 	msg := Message{Timestamp: refTime, Type: MsgServerEvent, Content: "started", Room: "general"}
 	got := msg.FormatLogLine()
@@ -194,6 +208,7 @@ func TestFormatLogLineServerEventNoRoom(t *testing.T) {
 	}
 }
 
+// TestParseLogLineRoundTripWithRoom verifies the scenario described by its name.
 func TestParseLogLineRoundTripWithRoom(t *testing.T) {
 	msg := Message{Timestamp: refTime, Type: MsgChat, Sender: "alice", Content: "hello", Room: "dev"}
 	line := msg.FormatLogLine()
@@ -209,6 +224,7 @@ func TestParseLogLineRoundTripWithRoom(t *testing.T) {
 	}
 }
 
+// TestParseLogLineBackwardCompatible verifies the scenario described by its name.
 func TestParseLogLineBackwardCompatible(t *testing.T) {
 	// Old-format log line without @room tag
 	line := "[2026-02-20 15:48:41] CHAT [alice]:hello"
@@ -224,6 +240,7 @@ func TestParseLogLineBackwardCompatible(t *testing.T) {
 	}
 }
 
+// TestParseLogLineErrors verifies the scenario described by its name.
 func TestParseLogLineErrors(t *testing.T) {
 	bad := []string{
 		"",
@@ -239,6 +256,7 @@ func TestParseLogLineErrors(t *testing.T) {
 	}
 }
 
+// TestLogLineDistinct verifies the scenario described by its name.
 func TestLogLineDistinct(t *testing.T) {
 	// Each message type should produce a log line with a distinct prefix keyword
 	types := []MessageType{MsgChat, MsgJoin, MsgLeave, MsgNameChange, MsgAnnouncement, MsgModeration, MsgServerEvent}

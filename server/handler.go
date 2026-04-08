@@ -221,8 +221,7 @@ func (s *Server) sendRoomSelection(c *client.Client) {
 	c.Send(RoomPrompt)
 }
 
-// readRoomChoice sends room selection prompt and reads the client's choice.
-// Returns the room name, or "" if the client disconnected.
+// readRoomChoice prompts until the client picks a valid room or disconnects.
 func (s *Server) readRoomChoice(c *client.Client) string {
 	s.sendRoomSelection(c)
 	for {
@@ -244,9 +243,7 @@ func (s *Server) readRoomChoice(c *client.Client) string {
 
 // ---------- capacity check and queue (per-room) ----------
 
-// checkOrQueueRoom returns true if the client can proceed to join the room.
-// If the room is at capacity, offers a queue position and blocks until
-// admitted, declined, or the server shuts down.
+// checkOrQueueRoom either admits the client immediately or offers a per-room wait queue when capacity is exhausted.
 func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
 	if s.IsShuttingDown() {
 		return false
@@ -257,6 +254,7 @@ func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
 	}
 
 	// Room is full — offer queue
+	// Queue first so the position we show matches the admission order the room will later use.
 	s.mu.Lock()
 	r := s.getOrCreateRoom(roomName)
 	entry := &QueueEntry{
@@ -290,8 +288,7 @@ func (s *Server) checkOrQueueRoom(c *client.Client, roomName string) bool {
 	}
 }
 
-// waitForRoomAdmission blocks until the client is admitted from the room queue,
-// disconnects, or the server shuts down. Returns true if admitted.
+// waitForRoomAdmission blocks queued clients until their room slot opens, they disconnect, or shutdown begins.
 func (s *Server) waitForRoomAdmission(c *client.Client, roomName string, entry *QueueEntry) bool {
 	readDone := make(chan error, 1)
 	monitorDone := make(chan struct{})
@@ -316,6 +313,7 @@ func (s *Server) waitForRoomAdmission(c *client.Client, roomName string, entry *
 
 	select {
 	case <-entry.admit:
+		// Break the blocking ReadLine in the monitor goroutine so the client can resume normal reads after admission.
 		c.Conn.SetReadDeadline(time.Now())
 		<-monitorDone
 		c.Conn.SetReadDeadline(time.Time{})

@@ -18,6 +18,7 @@ import (
 )
 
 // helper: connect a pipe-based client to the server handler, return the "client" side.
+// connectPipe provides the behavior described by its name.
 func connectPipe(s *Server) net.Conn {
 	serverConn, clientConn := net.Pipe()
 	go s.handleConnection(serverConn)
@@ -25,6 +26,7 @@ func connectPipe(s *Server) net.Conn {
 }
 
 // helper: read until a specific substring appears or timeout.
+// readUntil provides the behavior described by its name.
 func readUntil(conn net.Conn, substr string, timeout time.Duration) (string, error) {
 	conn.SetReadDeadline(time.Now().Add(timeout))
 	var buf strings.Builder
@@ -45,11 +47,13 @@ func readUntil(conn net.Conn, substr string, timeout time.Duration) (string, err
 }
 
 // helper: complete onboarding with the given name (default room), returning all text received.
+// onboard provides the behavior described by its name.
 func onboard(conn net.Conn, name string) (string, error) {
 	return onboardRoom(conn, name, "")
 }
 
 // helper: complete onboarding with name + room selection. Empty room = press Enter (default).
+// onboardRoom provides the behavior described by its name.
 func onboardRoom(conn net.Conn, name, room string) (string, error) {
 	// Read banner + name prompt
 	text, err := readUntil(conn, "[ENTER YOUR NAME]:", 2*time.Second)
@@ -71,6 +75,7 @@ func onboardRoom(conn net.Conn, name, room string) (string, error) {
 }
 
 // helper: complete name entry but NOT room selection. Returns at room prompt.
+// enterName provides the behavior described by its name.
 func enterName(conn net.Conn, name string) (string, error) {
 	text, err := readUntil(conn, "[ENTER YOUR NAME]:", 2*time.Second)
 	if err != nil {
@@ -83,6 +88,7 @@ func enterName(conn net.Conn, name string) (string, error) {
 
 // ==================== Task 2: Server Accepts Connections ====================
 
+// TestServerAcceptsTCPConnection verifies the scenario described by its name.
 func TestServerAcceptsTCPConnection(t *testing.T) {
 	s := New("0") // port 0 = random
 	ln, err := net.Listen("tcp", ":0")
@@ -110,6 +116,7 @@ func TestServerAcceptsTCPConnection(t *testing.T) {
 	}
 }
 
+// TestMultipleClientsConcurrent verifies the scenario described by its name.
 func TestMultipleClientsConcurrent(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -126,6 +133,7 @@ func TestMultipleClientsConcurrent(t *testing.T) {
 
 // ==================== Task 5: Client Onboarding ====================
 
+// TestOnboardingBanner verifies the scenario described by its name.
 func TestOnboardingBanner(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -146,6 +154,7 @@ func TestOnboardingBanner(t *testing.T) {
 	}
 }
 
+// TestOnboardingEmptyName verifies the scenario described by its name.
 func TestOnboardingEmptyName(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -166,6 +175,7 @@ func TestOnboardingEmptyName(t *testing.T) {
 	}
 }
 
+// TestOnboardingWhitespaceOnlyName verifies the scenario described by its name.
 func TestOnboardingWhitespaceOnlyName(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -179,6 +189,7 @@ func TestOnboardingWhitespaceOnlyName(t *testing.T) {
 	}
 }
 
+// TestOnboardingNameWithSpaces verifies the scenario described by its name.
 func TestOnboardingNameWithSpaces(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -192,6 +203,7 @@ func TestOnboardingNameWithSpaces(t *testing.T) {
 	}
 }
 
+// TestOnboardingNameTooLong verifies the scenario described by its name.
 func TestOnboardingNameTooLong(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -206,6 +218,7 @@ func TestOnboardingNameTooLong(t *testing.T) {
 	}
 }
 
+// TestOnboardingNameTaken verifies the scenario described by its name.
 func TestOnboardingNameTaken(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -222,6 +235,7 @@ func TestOnboardingNameTaken(t *testing.T) {
 	}
 }
 
+// TestOnboardingControlCharsRejected verifies the scenario described by its name.
 func TestOnboardingControlCharsRejected(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -235,6 +249,7 @@ func TestOnboardingControlCharsRejected(t *testing.T) {
 	}
 }
 
+// TestOnboardingValidSpecialChars verifies the scenario described by its name.
 func TestOnboardingValidSpecialChars(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -246,6 +261,7 @@ func TestOnboardingValidSpecialChars(t *testing.T) {
 	}
 }
 
+// TestOnboardingReservedNameServer verifies the scenario described by its name.
 func TestOnboardingReservedNameServer(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -259,6 +275,7 @@ func TestOnboardingReservedNameServer(t *testing.T) {
 	}
 }
 
+// TestOnboardingNoRetryLimit verifies the scenario described by its name.
 func TestOnboardingNoRetryLimit(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -280,6 +297,7 @@ func TestOnboardingNoRetryLimit(t *testing.T) {
 	}
 }
 
+// TestOnboardingDisconnectDuringNamePrompt verifies the scenario described by its name.
 func TestOnboardingDisconnectDuringNamePrompt(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -296,6 +314,7 @@ func TestOnboardingDisconnectDuringNamePrompt(t *testing.T) {
 // TestOnboardingDisconnectDuringNamePromptNoNotification verifies that when a
 // client disconnects during the name prompt, no join or leave notification is
 // sent to other connected clients (spec 02 edge case).
+// TestOnboardingDisconnectDuringNamePromptNoNotification verifies the scenario described by its name.
 func TestOnboardingDisconnectDuringNamePromptNoNotification(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -332,6 +351,7 @@ func TestOnboardingDisconnectDuringNamePromptNoNotification(t *testing.T) {
 	}
 }
 
+// TestOnboardingCRLFStripped verifies the scenario described by its name.
 func TestOnboardingCRLFStripped(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -348,6 +368,7 @@ func TestOnboardingCRLFStripped(t *testing.T) {
 	}
 }
 
+// TestOnboardingHistoryDelivered verifies the scenario described by its name.
 func TestOnboardingHistoryDelivered(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -369,6 +390,7 @@ func TestOnboardingHistoryDelivered(t *testing.T) {
 
 // ==================== Task 6: Message Broadcast ====================
 
+// TestMessageBroadcastFormat verifies the scenario described by its name.
 func TestMessageBroadcastFormat(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -397,6 +419,7 @@ func TestMessageBroadcastFormat(t *testing.T) {
 	}
 }
 
+// TestSenderDoesNotReceiveOwnMessage verifies the scenario described by its name.
 func TestSenderDoesNotReceiveOwnMessage(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -417,6 +440,7 @@ func TestSenderDoesNotReceiveOwnMessage(t *testing.T) {
 	}
 }
 
+// TestEmptyMessageSilentlyDiscarded verifies the scenario described by its name.
 func TestEmptyMessageSilentlyDiscarded(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -447,6 +471,7 @@ func TestEmptyMessageSilentlyDiscarded(t *testing.T) {
 	}
 }
 
+// TestWhitespaceOnlyMessageDiscarded verifies the scenario described by its name.
 func TestWhitespaceOnlyMessageDiscarded(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -460,6 +485,7 @@ func TestWhitespaceOnlyMessageDiscarded(t *testing.T) {
 	}
 }
 
+// TestMessageExactly2048Accepted verifies the scenario described by its name.
 func TestMessageExactly2048Accepted(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -479,6 +505,7 @@ func TestMessageExactly2048Accepted(t *testing.T) {
 	}
 }
 
+// TestMessage2049Rejected verifies the scenario described by its name.
 func TestMessage2049Rejected(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -493,6 +520,7 @@ func TestMessage2049Rejected(t *testing.T) {
 	}
 }
 
+// TestCommandInputNeverBroadcast verifies the scenario described by its name.
 func TestCommandInputNeverBroadcast(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -517,6 +545,7 @@ func TestCommandInputNeverBroadcast(t *testing.T) {
 
 // ==================== Task 7: Command Routing ====================
 
+// TestUnknownCommandError verifies the scenario described by its name.
 func TestUnknownCommandError(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -533,6 +562,7 @@ func TestUnknownCommandError(t *testing.T) {
 	}
 }
 
+// TestLoneSlashUnrecognized verifies the scenario described by its name.
 func TestLoneSlashUnrecognized(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -546,6 +576,7 @@ func TestLoneSlashUnrecognized(t *testing.T) {
 	}
 }
 
+// TestWrongCaseNotRecognized verifies the scenario described by its name.
 func TestWrongCaseNotRecognized(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -559,6 +590,7 @@ func TestWrongCaseNotRecognized(t *testing.T) {
 	}
 }
 
+// TestCommandOutputPrivate verifies the scenario described by its name.
 func TestCommandOutputPrivate(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -581,6 +613,7 @@ func TestCommandOutputPrivate(t *testing.T) {
 	}
 }
 
+// TestNonAdminKickInsufficientPrivileges verifies the scenario described by its name.
 func TestNonAdminKickInsufficientPrivileges(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -599,6 +632,7 @@ func TestNonAdminKickInsufficientPrivileges(t *testing.T) {
 	}
 }
 
+// TestNonAdminPromoteInsufficientPrivileges verifies the scenario described by its name.
 func TestNonAdminPromoteInsufficientPrivileges(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -612,6 +646,7 @@ func TestNonAdminPromoteInsufficientPrivileges(t *testing.T) {
 	}
 }
 
+// TestMissingArgsReturnsUsage verifies the scenario described by its name.
 func TestMissingArgsReturnsUsage(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -645,6 +680,7 @@ func TestMissingArgsReturnsUsage(t *testing.T) {
 
 // ==================== Task 8: Join/Leave Notifications ====================
 
+// TestJoinNotification verifies the scenario described by its name.
 func TestJoinNotification(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -665,6 +701,7 @@ func TestJoinNotification(t *testing.T) {
 	}
 }
 
+// TestJoinerDoesNotSeeOwnJoin verifies the scenario described by its name.
 func TestJoinerDoesNotSeeOwnJoin(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -676,6 +713,7 @@ func TestJoinerDoesNotSeeOwnJoin(t *testing.T) {
 	}
 }
 
+// TestLeaveNotificationOnDisconnect verifies the scenario described by its name.
 func TestLeaveNotificationOnDisconnect(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -696,6 +734,7 @@ func TestLeaveNotificationOnDisconnect(t *testing.T) {
 	}
 }
 
+// TestQuitCommandTriggersLeave verifies the scenario described by its name.
 func TestQuitCommandTriggersLeave(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -717,6 +756,7 @@ func TestQuitCommandTriggersLeave(t *testing.T) {
 	}
 }
 
+// TestJoinLeaveEventsInHistory verifies the scenario described by its name.
 func TestJoinLeaveEventsInHistory(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -741,6 +781,7 @@ func TestJoinLeaveEventsInHistory(t *testing.T) {
 	}
 }
 
+// TestOtherClientsNotDisconnectedOnLeave verifies the scenario described by its name.
 func TestOtherClientsNotDisconnectedOnLeave(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -764,6 +805,7 @@ func TestOtherClientsNotDisconnectedOnLeave(t *testing.T) {
 
 // ==================== /name command (basic) ====================
 
+// TestNameChangeBasic verifies the scenario described by its name.
 func TestNameChangeBasic(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -791,6 +833,7 @@ func TestNameChangeBasic(t *testing.T) {
 
 // ==================== /whisper command (basic) ====================
 
+// TestWhisperBasic verifies the scenario described by its name.
 func TestWhisperBasic(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -820,6 +863,7 @@ func TestWhisperBasic(t *testing.T) {
 
 // ==================== /list command ====================
 
+// TestListShowsConnectedClients verifies the scenario described by its name.
 func TestListShowsConnectedClients(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -843,6 +887,7 @@ func TestListShowsConnectedClients(t *testing.T) {
 
 // ==================== /help command (role-aware) ====================
 
+// TestHelpRegularUser verifies the scenario described by its name.
 func TestHelpRegularUser(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -866,6 +911,7 @@ func TestHelpRegularUser(t *testing.T) {
 	}
 }
 
+// TestHelpAdmin verifies the scenario described by its name.
 func TestHelpAdmin(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -892,6 +938,7 @@ func TestHelpAdmin(t *testing.T) {
 
 // ==================== validateName unit tests ====================
 
+// Test_validateName verifies the scenario described by its name.
 func Test_validateName(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -923,6 +970,7 @@ func Test_validateName(t *testing.T) {
 
 // ==================== Simultaneous name race ====================
 
+// TestSimultaneousSameNameOneSucceeds verifies the scenario described by its name.
 func TestSimultaneousSameNameOneSucceeds(t *testing.T) {
 	s := New("0")
 
@@ -954,6 +1002,7 @@ func TestSimultaneousSameNameOneSucceeds(t *testing.T) {
 	}
 }
 
+// TestRegisterClientConcurrent verifies the scenario described by its name.
 func TestRegisterClientConcurrent(t *testing.T) {
 	s := New("0")
 	results := make(chan bool, 50)
@@ -980,6 +1029,7 @@ func TestRegisterClientConcurrent(t *testing.T) {
 
 // TestRoomCapacityEnforced verifies that checkRoomCapacity returns false
 // when a room has MaxActiveClients members.
+// TestRoomCapacityEnforced verifies the scenario described by its name.
 func TestRoomCapacityEnforced(t *testing.T) {
 	s := New("0")
 	// Fill default room to max capacity
@@ -1006,6 +1056,7 @@ func TestRoomCapacityEnforced(t *testing.T) {
 
 // TestRegisterClientConcurrentUniqueness verifies that when many goroutines race
 // to register the same name, exactly one succeeds.
+// TestRegisterClientConcurrentUniqueness verifies the scenario described by its name.
 func TestRegisterClientConcurrentUniqueness(t *testing.T) {
 	s := New("0")
 	const racers = 20
@@ -1032,6 +1083,7 @@ func TestRegisterClientConcurrentUniqueness(t *testing.T) {
 
 // ==================== Server continues after disconnect ====================
 
+// TestServerContinuesAfterClientDisconnect verifies the scenario described by its name.
 func TestServerContinuesAfterClientDisconnect(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -1049,6 +1101,7 @@ func TestServerContinuesAfterClientDisconnect(t *testing.T) {
 
 // ==================== Rapid-fire message ordering ====================
 
+// TestRapidFireMessageOrder verifies the scenario described by its name.
 func TestRapidFireMessageOrder(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -1089,6 +1142,7 @@ func TestRapidFireMessageOrder(t *testing.T) {
 
 // ==================== Logging helpers ====================
 
+// newServerWithLogger provides the behavior described by its name.
 func newServerWithLogger(t *testing.T) (*Server, string) {
 	t.Helper()
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1102,6 +1156,7 @@ func newServerWithLogger(t *testing.T) (*Server, string) {
 	return s, logsDir
 }
 
+// readLogContent provides the behavior described by its name.
 func readLogContent(t *testing.T, logsDir string) string {
 	t.Helper()
 	date := logger.FormatDate(time.Now())
@@ -1129,6 +1184,7 @@ func closeAndReadLog(t *testing.T, s *Server, logsDir string, conns ...net.Conn)
 	return readLogContent(t, logsDir)
 }
 
+// TestLoggingChatMessages verifies the scenario described by its name.
 func TestLoggingChatMessages(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1147,6 +1203,7 @@ func TestLoggingChatMessages(t *testing.T) {
 	}
 }
 
+// TestLoggingJoinEvent verifies the scenario described by its name.
 func TestLoggingJoinEvent(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1159,6 +1216,7 @@ func TestLoggingJoinEvent(t *testing.T) {
 	}
 }
 
+// TestLoggingLeaveEventVoluntary verifies the scenario described by its name.
 func TestLoggingLeaveEventVoluntary(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1178,6 +1236,7 @@ func TestLoggingLeaveEventVoluntary(t *testing.T) {
 	}
 }
 
+// TestLoggingLeaveEventDrop verifies the scenario described by its name.
 func TestLoggingLeaveEventDrop(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1197,6 +1256,7 @@ func TestLoggingLeaveEventDrop(t *testing.T) {
 	}
 }
 
+// TestLoggingModerationKick verifies the scenario described by its name.
 func TestLoggingModerationKick(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1218,6 +1278,7 @@ func TestLoggingModerationKick(t *testing.T) {
 	}
 }
 
+// TestLoggingModerationBan verifies the scenario described by its name.
 func TestLoggingModerationBan(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1239,6 +1300,7 @@ func TestLoggingModerationBan(t *testing.T) {
 	}
 }
 
+// TestLoggingModerationMuteUnmute verifies the scenario described by its name.
 func TestLoggingModerationMuteUnmute(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1265,6 +1327,7 @@ func TestLoggingModerationMuteUnmute(t *testing.T) {
 	}
 }
 
+// TestLoggingPromoteDemote verifies the scenario described by its name.
 func TestLoggingPromoteDemote(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1290,6 +1353,7 @@ func TestLoggingPromoteDemote(t *testing.T) {
 	}
 }
 
+// TestLoggingAnnouncement verifies the scenario described by its name.
 func TestLoggingAnnouncement(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1307,6 +1371,7 @@ func TestLoggingAnnouncement(t *testing.T) {
 	}
 }
 
+// TestLoggingNameChange verifies the scenario described by its name.
 func TestLoggingNameChange(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1321,6 +1386,7 @@ func TestLoggingNameChange(t *testing.T) {
 	}
 }
 
+// TestLoggingWhisperNotInLog verifies the scenario described by its name.
 func TestLoggingWhisperNotInLog(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1349,6 +1415,7 @@ func TestLoggingWhisperNotInLog(t *testing.T) {
 	}
 }
 
+// TestLoggingConsoleMinimal verifies the scenario described by its name.
 func TestLoggingConsoleMinimal(t *testing.T) {
 	// Verify the log file contains events (console output cannot be
 	// easily captured here, but the code does not print chat to console).
@@ -1368,6 +1435,7 @@ func TestLoggingConsoleMinimal(t *testing.T) {
 	}
 }
 
+// TestLoggingSameDayAppend verifies the scenario described by its name.
 func TestLoggingSameDayAppend(t *testing.T) {
 	logsDir := filepath.Join(t.TempDir(), "logs")
 
@@ -1406,6 +1474,7 @@ func TestLoggingSameDayAppend(t *testing.T) {
 	}
 }
 
+// TestLoggingConcurrentMessages verifies the scenario described by its name.
 func TestLoggingConcurrentMessages(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 
@@ -1436,6 +1505,7 @@ func TestLoggingConcurrentMessages(t *testing.T) {
 	}
 }
 
+// TestLoggingDiskErrorContinues verifies the scenario described by its name.
 func TestLoggingDiskErrorContinues(t *testing.T) {
 	// Server with a nil logger should still work (chat functions normally)
 	s := New("0")
@@ -1460,6 +1530,7 @@ func TestLoggingDiskErrorContinues(t *testing.T) {
 	}
 }
 
+// TestLoggingEventsSelfContained verifies the scenario described by its name.
 func TestLoggingEventsSelfContained(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	c1 := connectPipe(s)
@@ -1496,6 +1567,7 @@ func newServerWithLoggerDir(t *testing.T, logsDir string) *Server {
 	return s
 }
 
+// TestRecoveryNoPriorLog verifies the scenario described by its name.
 func TestRecoveryNoPriorLog(t *testing.T) {
 	// First client of the day with no prior log receives no history, just their prompt.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1518,6 +1590,7 @@ func TestRecoveryNoPriorLog(t *testing.T) {
 	}
 }
 
+// TestRecoveryAfterRestart verifies the scenario described by its name.
 func TestRecoveryAfterRestart(t *testing.T) {
 	// After server restart on the same day, a connecting client sees history from before the restart.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1556,6 +1629,7 @@ func TestRecoveryAfterRestart(t *testing.T) {
 	}
 }
 
+// TestRecoveryIncludesAllEventTypes verifies the scenario described by its name.
 func TestRecoveryIncludesAllEventTypes(t *testing.T) {
 	// History includes chat messages, join/leave events, name changes, admin actions.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1625,6 +1699,7 @@ func TestRecoveryIncludesAllEventTypes(t *testing.T) {
 	}
 }
 
+// TestRecoveryTimestampsMatchOriginal verifies the scenario described by its name.
 func TestRecoveryTimestampsMatchOriginal(t *testing.T) {
 	// Timestamps on recovered entries match the original send time, not the replay time.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1674,6 +1749,7 @@ func TestRecoveryTimestampsMatchOriginal(t *testing.T) {
 	t.Error("recovered history does not contain the timed message")
 }
 
+// TestRecoveryHistoryVisuallyIdentical verifies the scenario described by its name.
 func TestRecoveryHistoryVisuallyIdentical(t *testing.T) {
 	// History entries are visually identical to live messages — Display() output matches
 	// between the original message and the log-parsed recovered version.
@@ -1721,6 +1797,7 @@ func TestRecoveryHistoryVisuallyIdentical(t *testing.T) {
 	}
 }
 
+// TestRecoveryThreeRestarts verifies the scenario described by its name.
 func TestRecoveryThreeRestarts(t *testing.T) {
 	// Server restarted 3 times in one day: history accumulates across all sessions, no duplicates.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1764,6 +1841,7 @@ func TestRecoveryThreeRestarts(t *testing.T) {
 	}
 }
 
+// TestRecoveryJustSentMessageInHistory verifies the scenario described by its name.
 func TestRecoveryJustSentMessageInHistory(t *testing.T) {
 	// Client joins immediately after a message is sent: the just-sent message is in their history.
 	s, _ := newServerWithLogger(t)
@@ -1786,6 +1864,7 @@ func TestRecoveryJustSentMessageInHistory(t *testing.T) {
 	}
 }
 
+// TestRecoveryLargeHistory verifies the scenario described by its name.
 func TestRecoveryLargeHistory(t *testing.T) {
 	// Very large history (thousands of entries): recovered in full, no truncation.
 	// Write log entries directly to the file to test recovery at scale.
@@ -1835,6 +1914,7 @@ func TestRecoveryLargeHistory(t *testing.T) {
 	}
 }
 
+// TestRecoveryCorruptedLogFile verifies the scenario described by its name.
 func TestRecoveryCorruptedLogFile(t *testing.T) {
 	// Corrupted/unreadable log file: server starts with empty history.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1853,6 +1933,7 @@ func TestRecoveryCorruptedLogFile(t *testing.T) {
 	}
 }
 
+// TestRecoveryPartiallyCorruptedLogFile verifies the scenario described by its name.
 func TestRecoveryPartiallyCorruptedLogFile(t *testing.T) {
 	// Partially corrupted log file: server recovers valid entries and warns about the rest.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1896,6 +1977,7 @@ func TestRecoveryPartiallyCorruptedLogFile(t *testing.T) {
 	}
 }
 
+// TestRecoveryServerEventsExcluded verifies the scenario described by its name.
 func TestRecoveryServerEventsExcluded(t *testing.T) {
 	// Server events (start/stop) are NOT included in recovered user-visible history.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1930,6 +2012,7 @@ func TestRecoveryServerEventsExcluded(t *testing.T) {
 	}
 }
 
+// TestRecoveryNilLogger verifies the scenario described by its name.
 func TestRecoveryNilLogger(t *testing.T) {
 	// Server with nil logger: RecoverHistory is a no-op.
 	s := New("0")
@@ -1939,6 +2022,7 @@ func TestRecoveryNilLogger(t *testing.T) {
 	}
 }
 
+// TestRecoveryPromoteDemoteInHistory verifies the scenario described by its name.
 func TestRecoveryPromoteDemoteInHistory(t *testing.T) {
 	// Recovered history includes promote and demote moderation events.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -1977,6 +2061,7 @@ func TestRecoveryPromoteDemoteInHistory(t *testing.T) {
 	}
 }
 
+// TestRecoveryKickBanInHistory verifies the scenario described by its name.
 func TestRecoveryKickBanInHistory(t *testing.T) {
 	// Recovered history includes kick and ban moderation events.
 	logsDir := filepath.Join(t.TempDir(), "logs")
@@ -2019,6 +2104,7 @@ func TestRecoveryKickBanInHistory(t *testing.T) {
 
 // ==================== Task 11: Connection Capacity ====================
 
+// TestTenClientsCanChat verifies the scenario described by its name.
 func TestTenClientsCanChat(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2044,6 +2130,7 @@ func TestTenClientsCanChat(t *testing.T) {
 	}
 }
 
+// TestEleventhClientQueuedAfterRoomSelection verifies the scenario described by its name.
 func TestEleventhClientQueuedAfterRoomSelection(t *testing.T) {
 	s := New("0")
 	// Fill default room to 10 active clients
@@ -2073,6 +2160,7 @@ func TestEleventhClientQueuedAfterRoomSelection(t *testing.T) {
 	}
 }
 
+// TestQueueChooseNo verifies the scenario described by its name.
 func TestQueueChooseNo(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2095,6 +2183,7 @@ func TestQueueChooseNo(t *testing.T) {
 	}
 }
 
+// TestQueueChooseYesAdmittedOnSlotOpen verifies the scenario described by its name.
 func TestQueueChooseYesAdmittedOnSlotOpen(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2131,6 +2220,7 @@ func TestQueueChooseYesAdmittedOnSlotOpen(t *testing.T) {
 	}
 }
 
+// TestQueuePositionUpdatesOnQueueChange verifies the scenario described by its name.
 func TestQueuePositionUpdatesOnQueueChange(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2182,6 +2272,7 @@ func TestQueuePositionUpdatesOnQueueChange(t *testing.T) {
 	}
 }
 
+// TestNamePromptDoesNotCountAgainstLimit verifies the scenario described by its name.
 func TestNamePromptDoesNotCountAgainstLimit(t *testing.T) {
 	// Capacity is per-room. Clients at name prompt don't count.
 	s := New("0")
@@ -2211,6 +2302,7 @@ func TestNamePromptDoesNotCountAgainstLimit(t *testing.T) {
 	}
 }
 
+// TestTenActiveAndRoomFullNewClientQueued verifies the scenario described by its name.
 func TestTenActiveAndRoomFullNewClientQueued(t *testing.T) {
 	// 10 active in default room + new client selects same room: gets queue offer
 	s := New("0")
@@ -2237,6 +2329,7 @@ func TestTenActiveAndRoomFullNewClientQueued(t *testing.T) {
 	}
 }
 
+// TestQueuedClientDisconnectSilentlyRemoved verifies the scenario described by its name.
 func TestQueuedClientDisconnectSilentlyRemoved(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2274,6 +2367,7 @@ func TestQueuedClientDisconnectSilentlyRemoved(t *testing.T) {
 	}
 }
 
+// TestQueueFIFOAdmission verifies the scenario described by its name.
 func TestQueueFIFOAdmission(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2314,6 +2408,7 @@ func TestQueueFIFOAdmission(t *testing.T) {
 	}
 }
 
+// TestQueueInvalidInput verifies the scenario described by its name.
 func TestQueueInvalidInput(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2345,6 +2440,7 @@ func TestQueueInvalidInput(t *testing.T) {
 	}
 }
 
+// TestAllActiveLeaveThenQueueAdmits verifies the scenario described by its name.
 func TestAllActiveLeaveThenQueueAdmits(t *testing.T) {
 	s := New("0")
 	conns := make([]net.Conn, 10)
@@ -2381,6 +2477,7 @@ func TestAllActiveLeaveThenQueueAdmits(t *testing.T) {
 	}
 }
 
+// TestShutdownNotifiesQueuedClients verifies the scenario described by its name.
 func TestShutdownNotifiesQueuedClients(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 300 * time.Millisecond
@@ -2412,6 +2509,7 @@ func TestShutdownNotifiesQueuedClients(t *testing.T) {
 
 // ==================== Task 12: Graceful Shutdown ====================
 
+// TestShutdownActiveClientsReceiveGoodbye verifies the scenario described by its name.
 func TestShutdownActiveClientsReceiveGoodbye(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 300 * time.Millisecond
@@ -2444,6 +2542,7 @@ func TestShutdownActiveClientsReceiveGoodbye(t *testing.T) {
 	}
 }
 
+// TestShutdownForceClosesAfterTimeout verifies the scenario described by its name.
 func TestShutdownForceClosesAfterTimeout(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 100 * time.Millisecond
@@ -2471,6 +2570,7 @@ func TestShutdownForceClosesAfterTimeout(t *testing.T) {
 	}
 }
 
+// TestShutdownLoggedToFile verifies the scenario described by its name.
 func TestShutdownLoggedToFile(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	s.ShutdownTimeout = 100 * time.Millisecond
@@ -2495,6 +2595,7 @@ func TestShutdownLoggedToFile(t *testing.T) {
 	}
 }
 
+// TestShutdownNoClients verifies the scenario described by its name.
 func TestShutdownNoClients(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 100 * time.Millisecond
@@ -2513,6 +2614,7 @@ func TestShutdownNoClients(t *testing.T) {
 	}
 }
 
+// TestShutdownIdempotent verifies the scenario described by its name.
 func TestShutdownIdempotent(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 100 * time.Millisecond
@@ -2534,6 +2636,7 @@ func TestShutdownIdempotent(t *testing.T) {
 	}
 }
 
+// TestShutdownNamePromptClientsReceiveGoodbye verifies the scenario described by its name.
 func TestShutdownNamePromptClientsReceiveGoodbye(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 300 * time.Millisecond
@@ -2569,6 +2672,7 @@ func TestShutdownNamePromptClientsReceiveGoodbye(t *testing.T) {
 	}
 }
 
+// TestShutdownBeforeAnyClientConnects verifies the scenario described by its name.
 func TestShutdownBeforeAnyClientConnects(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 100 * time.Millisecond
@@ -2590,6 +2694,7 @@ func TestShutdownBeforeAnyClientConnects(t *testing.T) {
 
 // ==================== Task 13: /list Command with Idle Times ====================
 
+// TestListIdleTimeSinceJoin verifies the scenario described by its name.
 func TestListIdleTimeSinceJoin(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2608,6 +2713,7 @@ func TestListIdleTimeSinceJoin(t *testing.T) {
 	}
 }
 
+// TestListIdleTimeUpdatesAfterMessage verifies the scenario described by its name.
 func TestListIdleTimeUpdatesAfterMessage(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2631,6 +2737,7 @@ func TestListIdleTimeUpdatesAfterMessage(t *testing.T) {
 	}
 }
 
+// TestListOnlyVisibleToRequester verifies the scenario described by its name.
 func TestListOnlyVisibleToRequester(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2653,6 +2760,7 @@ func TestListOnlyVisibleToRequester(t *testing.T) {
 	}
 }
 
+// TestListSoloUser verifies the scenario described by its name.
 func TestListSoloUser(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2669,6 +2777,7 @@ func TestListSoloUser(t *testing.T) {
 	}
 }
 
+// TestListWithExtraArgs verifies the scenario described by its name.
 func TestListWithExtraArgs(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2685,6 +2794,7 @@ func TestListWithExtraArgs(t *testing.T) {
 
 // ==================== Task 14: /quit Command ====================
 
+// TestQuitWithExtraArgsStillDisconnects verifies the scenario described by its name.
 func TestQuitWithExtraArgsStillDisconnects(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2704,6 +2814,7 @@ func TestQuitWithExtraArgsStillDisconnects(t *testing.T) {
 	}
 }
 
+// TestQuitLeaveLoggedAsVoluntary verifies the scenario described by its name.
 func TestQuitLeaveLoggedAsVoluntary(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	conn := connectPipe(s)
@@ -2718,6 +2829,7 @@ func TestQuitLeaveLoggedAsVoluntary(t *testing.T) {
 	}
 }
 
+// TestQuitDisconnectsClient verifies the scenario described by its name.
 func TestQuitDisconnectsClient(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2738,6 +2850,7 @@ func TestQuitDisconnectsClient(t *testing.T) {
 
 // ==================== Task 15: /help Command (Role-Aware, expanded) ====================
 
+// TestHelpExactFiveUserCommands verifies the scenario described by its name.
 func TestHelpExactFiveUserCommands(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2764,6 +2877,7 @@ func TestHelpExactFiveUserCommands(t *testing.T) {
 	}
 }
 
+// TestHelpAdminSeesFullAdminSet verifies the scenario described by its name.
 func TestHelpAdminSeesFullAdminSet(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2793,6 +2907,7 @@ func TestHelpAdminSeesFullAdminSet(t *testing.T) {
 	}
 }
 
+// TestHelpAfterPromotion verifies the scenario described by its name.
 func TestHelpAfterPromotion(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2818,6 +2933,7 @@ func TestHelpAfterPromotion(t *testing.T) {
 	}
 }
 
+// TestHelpAfterDemotion verifies the scenario described by its name.
 func TestHelpAfterDemotion(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2845,6 +2961,7 @@ func TestHelpAfterDemotion(t *testing.T) {
 	}
 }
 
+// TestHelpOutputPrivate verifies the scenario described by its name.
 func TestHelpOutputPrivate(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2869,6 +2986,7 @@ func TestHelpOutputPrivate(t *testing.T) {
 
 // ==================== Task 16: /whisper Command (Private Messaging, expanded) ====================
 
+// TestWhisperSenderSeesContent verifies the scenario described by its name.
 func TestWhisperSenderSeesContent(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2887,6 +3005,7 @@ func TestWhisperSenderSeesContent(t *testing.T) {
 	}
 }
 
+// TestWhisperRecipientFormat verifies the scenario described by its name.
 func TestWhisperRecipientFormat(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2906,6 +3025,7 @@ func TestWhisperRecipientFormat(t *testing.T) {
 	}
 }
 
+// TestWhisperNotVisibleToOthers verifies the scenario described by its name.
 func TestWhisperNotVisibleToOthers(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2932,6 +3052,7 @@ func TestWhisperNotVisibleToOthers(t *testing.T) {
 	}
 }
 
+// TestWhisperNotInHistory verifies the scenario described by its name.
 func TestWhisperNotInHistory(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2963,6 +3084,7 @@ func TestWhisperNotInHistory(t *testing.T) {
 	}
 }
 
+// TestWhisperNoArgs verifies the scenario described by its name.
 func TestWhisperNoArgs(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -2979,6 +3101,7 @@ func TestWhisperNoArgs(t *testing.T) {
 	}
 }
 
+// TestWhisperNoMessage verifies the scenario described by its name.
 func TestWhisperNoMessage(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -2997,6 +3120,7 @@ func TestWhisperNoMessage(t *testing.T) {
 	}
 }
 
+// TestWhisperNonexistentUser verifies the scenario described by its name.
 func TestWhisperNonexistentUser(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3013,6 +3137,7 @@ func TestWhisperNonexistentUser(t *testing.T) {
 	}
 }
 
+// TestWhisperSelf verifies the scenario described by its name.
 func TestWhisperSelf(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3026,6 +3151,7 @@ func TestWhisperSelf(t *testing.T) {
 	}
 }
 
+// TestWhisperTooLong verifies the scenario described by its name.
 func TestWhisperTooLong(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -3045,6 +3171,7 @@ func TestWhisperTooLong(t *testing.T) {
 	}
 }
 
+// TestWhisperWhitespaceOnly verifies the scenario described by its name.
 func TestWhisperWhitespaceOnly(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -3065,6 +3192,7 @@ func TestWhisperWhitespaceOnly(t *testing.T) {
 
 // ==================== Task 17: /name Command (Identity Change, expanded) ====================
 
+// TestNameChangePromptUpdated verifies the scenario described by its name.
 func TestNameChangePromptUpdated(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3078,6 +3206,7 @@ func TestNameChangePromptUpdated(t *testing.T) {
 	}
 }
 
+// TestNameChangeInHistory verifies the scenario described by its name.
 func TestNameChangeInHistory(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -3096,6 +3225,7 @@ func TestNameChangeInHistory(t *testing.T) {
 	}
 }
 
+// TestNameChangeNoArg verifies the scenario described by its name.
 func TestNameChangeNoArg(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3109,6 +3239,7 @@ func TestNameChangeNoArg(t *testing.T) {
 	}
 }
 
+// TestNameChangeSameName verifies the scenario described by its name.
 func TestNameChangeSameName(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3122,6 +3253,7 @@ func TestNameChangeSameName(t *testing.T) {
 	}
 }
 
+// TestNameChangeTakenName verifies the scenario described by its name.
 func TestNameChangeTakenName(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -3140,6 +3272,7 @@ func TestNameChangeTakenName(t *testing.T) {
 	}
 }
 
+// TestNameChangeWithSpaces verifies the scenario described by its name.
 func TestNameChangeWithSpaces(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3154,6 +3287,7 @@ func TestNameChangeWithSpaces(t *testing.T) {
 	}
 }
 
+// TestNameChangeAdminRetainsPrivileges verifies the scenario described by its name.
 func TestNameChangeAdminRetainsPrivileges(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3172,6 +3306,7 @@ func TestNameChangeAdminRetainsPrivileges(t *testing.T) {
 	}
 }
 
+// TestNameChangeMutedRetainsMute verifies the scenario described by its name.
 func TestNameChangeMutedRetainsMute(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3193,6 +3328,7 @@ func TestNameChangeMutedRetainsMute(t *testing.T) {
 	}
 }
 
+// TestNameChangeDisconnectedNameReusable verifies the scenario described by its name.
 func TestNameChangeDisconnectedNameReusable(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -3211,6 +3347,7 @@ func TestNameChangeDisconnectedNameReusable(t *testing.T) {
 	}
 }
 
+// TestNameChangeLogged verifies the scenario described by its name.
 func TestNameChangeLogged(t *testing.T) {
 	s, logsDir := newServerWithLogger(t)
 	conn := connectPipe(s)
@@ -3225,6 +3362,7 @@ func TestNameChangeLogged(t *testing.T) {
 	}
 }
 
+// TestNameChangeReservedNameRejected verifies the scenario described by its name.
 func TestNameChangeReservedNameRejected(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -3238,6 +3376,7 @@ func TestNameChangeReservedNameRejected(t *testing.T) {
 	}
 }
 
+// TestNameChangeSubsequentMessagesUseNewName verifies the scenario described by its name.
 func TestNameChangeSubsequentMessagesUseNewName(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -3260,6 +3399,7 @@ func TestNameChangeSubsequentMessagesUseNewName(t *testing.T) {
 	}
 }
 
+// TestNameChangeTwoClientsSimultaneousSameName verifies the scenario described by its name.
 func TestNameChangeTwoClientsSimultaneousSameName(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -3295,6 +3435,7 @@ func TestNameChangeTwoClientsSimultaneousSameName(t *testing.T) {
 // ==================== Task 18: Admin System ====================
 
 // helper: create a server with admins.json pointed at a temp directory
+// newServerWithAdmins provides the behavior described by its name.
 func newServerWithAdmins(t *testing.T) *Server {
 	t.Helper()
 	s := New("0")
@@ -3303,6 +3444,7 @@ func newServerWithAdmins(t *testing.T) *Server {
 }
 
 // helper: create a server with both logger and admins.json in a temp directory
+// newServerWithLoggerAndAdmins provides the behavior described by its name.
 func newServerWithLoggerAndAdmins(t *testing.T) (*Server, string) {
 	t.Helper()
 	tmpDir := t.TempDir()
@@ -3320,6 +3462,7 @@ func newServerWithLoggerAndAdmins(t *testing.T) (*Server, string) {
 
 // --- Operator terminal: basic command dispatch ---
 
+// TestOperatorCanTypeCommandsInTerminal verifies the scenario described by its name.
 func TestOperatorCanTypeCommandsInTerminal(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3336,6 +3479,7 @@ func TestOperatorCanTypeCommandsInTerminal(t *testing.T) {
 	}
 }
 
+// TestOperatorPromoteGrantsAdmin verifies the scenario described by its name.
 func TestOperatorPromoteGrantsAdmin(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3367,6 +3511,7 @@ func TestOperatorPromoteGrantsAdmin(t *testing.T) {
 	}
 }
 
+// TestOperatorDemoteRevokesAdmin verifies the scenario described by its name.
 func TestOperatorDemoteRevokesAdmin(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3399,6 +3544,7 @@ func TestOperatorDemoteRevokesAdmin(t *testing.T) {
 	}
 }
 
+// TestPromotedAdminCannotPromoteOrDemote verifies the scenario described by its name.
 func TestPromotedAdminCannotPromoteOrDemote(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -3434,6 +3580,7 @@ func TestPromotedAdminCannotPromoteOrDemote(t *testing.T) {
 
 // --- admins.json persistence ---
 
+// TestAdminPersistsToFile verifies the scenario described by its name.
 func TestAdminPersistsToFile(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3463,6 +3610,7 @@ func TestAdminPersistsToFile(t *testing.T) {
 	}
 }
 
+// TestAdminReconnectRestoresPrivileges verifies the scenario described by its name.
 func TestAdminReconnectRestoresPrivileges(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -3491,6 +3639,7 @@ func TestAdminReconnectRestoresPrivileges(t *testing.T) {
 	}
 }
 
+// TestPromoteAlreadyAdmin verifies the scenario described by its name.
 func TestPromoteAlreadyAdmin(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3510,6 +3659,7 @@ func TestPromoteAlreadyAdmin(t *testing.T) {
 	}
 }
 
+// TestDemoteNonAdmin verifies the scenario described by its name.
 func TestDemoteNonAdmin(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3525,6 +3675,7 @@ func TestDemoteNonAdmin(t *testing.T) {
 	}
 }
 
+// TestPromoteDisconnectedUser verifies the scenario described by its name.
 func TestPromoteDisconnectedUser(t *testing.T) {
 	s := newServerWithAdmins(t)
 	var buf strings.Builder
@@ -3536,6 +3687,7 @@ func TestPromoteDisconnectedUser(t *testing.T) {
 	}
 }
 
+// TestMissingAdminsJsonOnStartup verifies the scenario described by its name.
 func TestMissingAdminsJsonOnStartup(t *testing.T) {
 	s := New("0")
 	s.adminsFile = filepath.Join(t.TempDir(), "nonexistent", "admins.json")
@@ -3546,6 +3698,7 @@ func TestMissingAdminsJsonOnStartup(t *testing.T) {
 	}
 }
 
+// TestCorruptAdminsJsonOnStartup verifies the scenario described by its name.
 func TestCorruptAdminsJsonOnStartup(t *testing.T) {
 	tmpDir := t.TempDir()
 	adminsPath := filepath.Join(tmpDir, "admins.json")
@@ -3561,6 +3714,7 @@ func TestCorruptAdminsJsonOnStartup(t *testing.T) {
 
 // --- Operator inapplicable commands ---
 
+// TestOperatorQuitReturnsError verifies the scenario described by its name.
 func TestOperatorQuitReturnsError(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3572,6 +3726,7 @@ func TestOperatorQuitReturnsError(t *testing.T) {
 	}
 }
 
+// TestOperatorNameReturnsError verifies the scenario described by its name.
 func TestOperatorNameReturnsError(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3583,6 +3738,7 @@ func TestOperatorNameReturnsError(t *testing.T) {
 	}
 }
 
+// TestOperatorWhisperReturnsError verifies the scenario described by its name.
 func TestOperatorWhisperReturnsError(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3594,6 +3750,7 @@ func TestOperatorWhisperReturnsError(t *testing.T) {
 	}
 }
 
+// TestOperatorNonCommandInput verifies the scenario described by its name.
 func TestOperatorNonCommandInput(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3605,6 +3762,7 @@ func TestOperatorNonCommandInput(t *testing.T) {
 	}
 }
 
+// TestOperatorUnknownCommand verifies the scenario described by its name.
 func TestOperatorUnknownCommand(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3618,6 +3776,7 @@ func TestOperatorUnknownCommand(t *testing.T) {
 
 // --- Operator uses ALL commands from terminal ---
 
+// TestOperatorListFromTerminal verifies the scenario described by its name.
 func TestOperatorListFromTerminal(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3636,6 +3795,7 @@ func TestOperatorListFromTerminal(t *testing.T) {
 	}
 }
 
+// TestOperatorHelpFromTerminal verifies the scenario described by its name.
 func TestOperatorHelpFromTerminal(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3653,6 +3813,7 @@ func TestOperatorHelpFromTerminal(t *testing.T) {
 	}
 }
 
+// TestOperatorKickFromTerminal verifies the scenario described by its name.
 func TestOperatorKickFromTerminal(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -3680,6 +3841,7 @@ func TestOperatorKickFromTerminal(t *testing.T) {
 	}
 }
 
+// TestOperatorBanFromTerminal verifies the scenario described by its name.
 func TestOperatorBanFromTerminal(t *testing.T) {
 	s := newServerWithAdmins(t)
 	// Use distinct IPs so banning bob doesn't collateral-ban alice (NAT behavior)
@@ -3703,6 +3865,7 @@ func TestOperatorBanFromTerminal(t *testing.T) {
 	}
 }
 
+// TestOperatorMuteUnmuteFromTerminal verifies the scenario described by its name.
 func TestOperatorMuteUnmuteFromTerminal(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3732,6 +3895,7 @@ func TestOperatorMuteUnmuteFromTerminal(t *testing.T) {
 	}
 }
 
+// TestOperatorAnnounceFromTerminal verifies the scenario described by its name.
 func TestOperatorAnnounceFromTerminal(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3753,6 +3917,7 @@ func TestOperatorAnnounceFromTerminal(t *testing.T) {
 
 // --- Full admin name-change lifecycle ---
 
+// TestAdminNameChangeLifecycle verifies the scenario described by its name.
 func TestAdminNameChangeLifecycle(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -3808,6 +3973,7 @@ func TestAdminNameChangeLifecycle(t *testing.T) {
 	}
 }
 
+// TestDemotionRemovesFromAdminsJson verifies the scenario described by its name.
 func TestDemotionRemovesFromAdminsJson(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3848,6 +4014,7 @@ func TestDemotionRemovesFromAdminsJson(t *testing.T) {
 
 // --- Logging with operator identity ---
 
+// TestOperatorPromoteLoggedWithServerIdentity verifies the scenario described by its name.
 func TestOperatorPromoteLoggedWithServerIdentity(t *testing.T) {
 	s, logsDir := newServerWithLoggerAndAdmins(t)
 	conn := connectPipe(s)
@@ -3862,6 +4029,7 @@ func TestOperatorPromoteLoggedWithServerIdentity(t *testing.T) {
 	}
 }
 
+// TestOperatorDemoteLoggedWithServerIdentity verifies the scenario described by its name.
 func TestOperatorDemoteLoggedWithServerIdentity(t *testing.T) {
 	s, logsDir := newServerWithLoggerAndAdmins(t)
 	conn := connectPipe(s)
@@ -3878,6 +4046,7 @@ func TestOperatorDemoteLoggedWithServerIdentity(t *testing.T) {
 	}
 }
 
+// TestOperatorKickLoggedWithServerIdentity verifies the scenario described by its name.
 func TestOperatorKickLoggedWithServerIdentity(t *testing.T) {
 	s, logsDir := newServerWithLoggerAndAdmins(t)
 	c1 := connectPipe(s)
@@ -3897,6 +4066,7 @@ func TestOperatorKickLoggedWithServerIdentity(t *testing.T) {
 
 // --- Rapid successive promote/demote: admins.json stays valid ---
 
+// TestRapidPromoteDemoteAdminsJsonValid verifies the scenario described by its name.
 func TestRapidPromoteDemoteAdminsJsonValid(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conns := make([]net.Conn, 5)
@@ -3945,6 +4115,7 @@ func TestRapidPromoteDemoteAdminsJsonValid(t *testing.T) {
 
 // --- Operator terminal with StartOperator (io.Reader-based) ---
 
+// TestStartOperatorReadsFromReader verifies the scenario described by its name.
 func TestStartOperatorReadsFromReader(t *testing.T) {
 	s := newServerWithAdmins(t)
 	conn := connectPipe(s)
@@ -3970,6 +4141,7 @@ func TestStartOperatorReadsFromReader(t *testing.T) {
 
 // --- Operator empty input is ignored ---
 
+// TestOperatorEmptyInputIgnored verifies the scenario described by its name.
 func TestOperatorEmptyInputIgnored(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3984,6 +4156,7 @@ func TestOperatorEmptyInputIgnored(t *testing.T) {
 
 // --- Operator missing args ---
 
+// TestOperatorPromoteMissingArgs verifies the scenario described by its name.
 func TestOperatorPromoteMissingArgs(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -3995,6 +4168,7 @@ func TestOperatorPromoteMissingArgs(t *testing.T) {
 	}
 }
 
+// TestOperatorDemoteMissingArgs verifies the scenario described by its name.
 func TestOperatorDemoteMissingArgs(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -4006,6 +4180,7 @@ func TestOperatorDemoteMissingArgs(t *testing.T) {
 	}
 }
 
+// TestOperatorKickMissingArgs verifies the scenario described by its name.
 func TestOperatorKickMissingArgs(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -4017,6 +4192,7 @@ func TestOperatorKickMissingArgs(t *testing.T) {
 	}
 }
 
+// TestOperatorAnnounceMissingArgs verifies the scenario described by its name.
 func TestOperatorAnnounceMissingArgs(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -4028,6 +4204,7 @@ func TestOperatorAnnounceMissingArgs(t *testing.T) {
 	}
 }
 
+// TestOperatorAnnounceWhitespaceOnly verifies the scenario described by its name.
 func TestOperatorAnnounceWhitespaceOnly(t *testing.T) {
 	s := New("0")
 	var buf strings.Builder
@@ -4046,8 +4223,11 @@ type fakeAddr struct {
 	network, address string
 }
 
+// Network provides the behavior described by its name.
 func (a fakeAddr) Network() string { return a.network }
-func (a fakeAddr) String() string  { return a.address }
+
+// String provides the behavior described by its name.
+func (a fakeAddr) String() string { return a.address }
 
 // fakeAddrConn wraps net.Conn and overrides RemoteAddr.
 type fakeAddrConn struct {
@@ -4055,6 +4235,7 @@ type fakeAddrConn struct {
 	remoteAddr net.Addr
 }
 
+// RemoteAddr provides the behavior described by its name.
 func (c *fakeAddrConn) RemoteAddr() net.Addr { return c.remoteAddr }
 
 // connectPipeWithIP creates a pipe connection where the server sees the given IP.
@@ -4070,6 +4251,7 @@ func connectPipeWithIP(s *Server, ip string) net.Conn {
 
 // ==================== Task 19: Moderation Commands (/kick, /ban, /mute, /unmute) ====================
 
+// TestKickDisconnectsTarget verifies the scenario described by its name.
 func TestKickDisconnectsTarget(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4102,6 +4284,7 @@ func TestKickDisconnectsTarget(t *testing.T) {
 	}
 }
 
+// TestKickBroadcastsNotification verifies the scenario described by its name.
 func TestKickBroadcastsNotification(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4130,6 +4313,7 @@ func TestKickBroadcastsNotification(t *testing.T) {
 	}
 }
 
+// TestKickNoDoubleLeaveNotification verifies the scenario described by its name.
 func TestKickNoDoubleLeaveNotification(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4162,6 +4346,7 @@ func TestKickNoDoubleLeaveNotification(t *testing.T) {
 	}
 }
 
+// TestKickIPBlockedReconnect verifies the scenario described by its name.
 func TestKickIPBlockedReconnect(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4209,6 +4394,7 @@ func TestKickIPBlockedReconnect(t *testing.T) {
 	}
 }
 
+// TestKickIPBlockExpiry verifies the scenario described by its name.
 func TestKickIPBlockExpiry(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4245,6 +4431,7 @@ func TestKickIPBlockExpiry(t *testing.T) {
 	}
 }
 
+// TestBanDisconnectsTarget verifies the scenario described by its name.
 func TestBanDisconnectsTarget(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4274,6 +4461,7 @@ func TestBanDisconnectsTarget(t *testing.T) {
 	}
 }
 
+// TestBanBroadcastsNotification verifies the scenario described by its name.
 func TestBanBroadcastsNotification(t *testing.T) {
 	s := newServerWithAdmins(t)
 	// Use distinct IPs so banning alice doesn't collateral-ban bob (NAT behavior)
@@ -4303,6 +4491,7 @@ func TestBanBroadcastsNotification(t *testing.T) {
 	}
 }
 
+// TestBanNoDoubleLeaveNotification verifies the scenario described by its name.
 func TestBanNoDoubleLeaveNotification(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4331,6 +4520,7 @@ func TestBanNoDoubleLeaveNotification(t *testing.T) {
 	}
 }
 
+// TestBanIPBlockedReconnect verifies the scenario described by its name.
 func TestBanIPBlockedReconnect(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4377,6 +4567,7 @@ func TestBanIPBlockedReconnect(t *testing.T) {
 	}
 }
 
+// TestBanNotPersistedAcrossRestart verifies the scenario described by its name.
 func TestBanNotPersistedAcrossRestart(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4411,6 +4602,7 @@ func TestBanNotPersistedAcrossRestart(t *testing.T) {
 	}
 }
 
+// TestMutePreventsChat verifies the scenario described by its name.
 func TestMutePreventsChat(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4436,6 +4628,7 @@ func TestMutePreventsChat(t *testing.T) {
 	}
 }
 
+// TestMutedClientCanRead verifies the scenario described by its name.
 func TestMutedClientCanRead(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4464,6 +4657,7 @@ func TestMutedClientCanRead(t *testing.T) {
 	}
 }
 
+// TestMutedClientCommandsWork verifies the scenario described by its name.
 func TestMutedClientCommandsWork(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4510,6 +4704,7 @@ func TestMutedClientCommandsWork(t *testing.T) {
 	}
 }
 
+// TestMuteBroadcastsNotification verifies the scenario described by its name.
 func TestMuteBroadcastsNotification(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4546,6 +4741,7 @@ func TestMuteBroadcastsNotification(t *testing.T) {
 	}
 }
 
+// TestUnmuteBroadcastsNotification verifies the scenario described by its name.
 func TestUnmuteBroadcastsNotification(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4588,6 +4784,7 @@ func TestUnmuteBroadcastsNotification(t *testing.T) {
 	}
 }
 
+// TestUnmuteRestoresSending verifies the scenario described by its name.
 func TestUnmuteRestoresSending(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4628,6 +4825,7 @@ func TestUnmuteRestoresSending(t *testing.T) {
 	}
 }
 
+// TestMuteAlreadyMuted verifies the scenario described by its name.
 func TestMuteAlreadyMuted(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4653,6 +4851,7 @@ func TestMuteAlreadyMuted(t *testing.T) {
 	}
 }
 
+// TestUnmuteNotMuted verifies the scenario described by its name.
 func TestUnmuteNotMuted(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4674,6 +4873,7 @@ func TestUnmuteNotMuted(t *testing.T) {
 	}
 }
 
+// TestCannotKickBanMuteServerOperator verifies the scenario described by its name.
 func TestCannotKickBanMuteServerOperator(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4706,6 +4906,7 @@ func TestCannotKickBanMuteServerOperator(t *testing.T) {
 	}
 }
 
+// TestAdminsCanModerateEachOther verifies the scenario described by its name.
 func TestAdminsCanModerateEachOther(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4735,6 +4936,7 @@ func TestAdminsCanModerateEachOther(t *testing.T) {
 	}
 }
 
+// TestModerationEventsInHistory verifies the scenario described by its name.
 func TestModerationEventsInHistory(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4763,6 +4965,7 @@ func TestModerationEventsInHistory(t *testing.T) {
 	}
 }
 
+// TestModerationEventsLogged verifies the scenario described by its name.
 func TestModerationEventsLogged(t *testing.T) {
 	s, logsDir := newServerWithLoggerAndAdmins(t)
 	c1 := connectPipe(s)
@@ -4786,6 +4989,7 @@ func TestModerationEventsLogged(t *testing.T) {
 	}
 }
 
+// TestKickMissingArgs verifies the scenario described by its name.
 func TestKickMissingArgs(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4802,6 +5006,7 @@ func TestKickMissingArgs(t *testing.T) {
 	}
 }
 
+// TestBanMissingArgs verifies the scenario described by its name.
 func TestBanMissingArgs(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4818,6 +5023,7 @@ func TestBanMissingArgs(t *testing.T) {
 	}
 }
 
+// TestMuteMissingArgs verifies the scenario described by its name.
 func TestMuteMissingArgs(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4834,6 +5040,7 @@ func TestMuteMissingArgs(t *testing.T) {
 	}
 }
 
+// TestUnmuteMissingArgs verifies the scenario described by its name.
 func TestUnmuteMissingArgs(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4850,6 +5057,7 @@ func TestUnmuteMissingArgs(t *testing.T) {
 	}
 }
 
+// TestKickNonexistentUser verifies the scenario described by its name.
 func TestKickNonexistentUser(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4869,6 +5077,7 @@ func TestKickNonexistentUser(t *testing.T) {
 // TestUserNotFoundErrorSuggestsListCommand verifies that all admin commands
 // include a "/list" recovery suggestion in their "user not found" error messages
 // per spec 13 §Error Message Quality.
+// TestUserNotFoundErrorSuggestsListCommand verifies the scenario described by its name.
 func TestUserNotFoundErrorSuggestsListCommand(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4890,6 +5099,7 @@ func TestUserNotFoundErrorSuggestsListCommand(t *testing.T) {
 
 // TestOperatorUserNotFoundErrorSuggestsListCommand verifies operator-side commands
 // also include the "/list" recovery suggestion per spec 13 §Error Message Quality.
+// TestOperatorUserNotFoundErrorSuggestsListCommand verifies the scenario described by its name.
 func TestOperatorUserNotFoundErrorSuggestsListCommand(t *testing.T) {
 	s := newServerWithAdmins(t)
 	var buf strings.Builder
@@ -4906,6 +5116,7 @@ func TestOperatorUserNotFoundErrorSuggestsListCommand(t *testing.T) {
 	}
 }
 
+// TestMutedUserNameChangeStaysMuted verifies the scenario described by its name.
 func TestMutedUserNameChangeStaysMuted(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4936,6 +5147,7 @@ func TestMutedUserNameChangeStaysMuted(t *testing.T) {
 	}
 }
 
+// TestIPCheckBeforeBanner verifies the scenario described by its name.
 func TestIPCheckBeforeBanner(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -4982,6 +5194,7 @@ func TestIPCheckBeforeBanner(t *testing.T) {
 	}
 }
 
+// TestOperatorKickBroadcastsWithServerIdentity verifies the scenario described by its name.
 func TestOperatorKickBroadcastsWithServerIdentity(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5005,6 +5218,7 @@ func TestOperatorKickBroadcastsWithServerIdentity(t *testing.T) {
 	}
 }
 
+// TestBanSameIPBlocksAll verifies the scenario described by its name.
 func TestBanSameIPBlocksAll(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5061,6 +5275,7 @@ func TestBanSameIPBlocksAll(t *testing.T) {
 // disconnects all other currently-active clients sharing the same IP (NAT scenario),
 // as required by spec 09 edge case: "Banning on shared NAT address: all users
 // from that address are affected."
+// TestBanNATDisconnectsAllClientsOnSameIP verifies the scenario described by its name.
 func TestBanNATDisconnectsAllClientsOnSameIP(t *testing.T) {
 	s, logsDir := newServerWithLoggerAndAdmins(t)
 	c1 := connectPipe(s) // admin on pipe (different IP)
@@ -5121,6 +5336,7 @@ func TestBanNATDisconnectsAllClientsOnSameIP(t *testing.T) {
 
 // TestBanNATOperatorDisconnectsAllClientsOnSameIP verifies the operator's /ban
 // also disconnects all clients sharing the banned IP.
+// TestBanNATOperatorDisconnectsAllClientsOnSameIP verifies the scenario described by its name.
 func TestBanNATOperatorDisconnectsAllClientsOnSameIP(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipeWithIP(s, "10.0.0.60:1111") // alice
@@ -5162,6 +5378,7 @@ func TestBanNATOperatorDisconnectsAllClientsOnSameIP(t *testing.T) {
 
 // TestBanNATExcludesIssuer verifies that if the admin issuing /ban shares the
 // same IP as the target (e.g. both behind same NAT), the admin is NOT banned.
+// TestBanNATExcludesIssuer verifies the scenario described by its name.
 func TestBanNATExcludesIssuer(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipeWithIP(s, "10.0.0.70:1111") // admin (same IP as target)
@@ -5192,6 +5409,7 @@ func TestBanNATExcludesIssuer(t *testing.T) {
 
 // ==================== Task 20: /announce Command ====================
 
+// TestAnnounceBroadcastsToAll verifies the scenario described by its name.
 func TestAnnounceBroadcastsToAll(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5227,6 +5445,7 @@ func TestAnnounceBroadcastsToAll(t *testing.T) {
 	}
 }
 
+// TestAnnounceInHistory verifies the scenario described by its name.
 func TestAnnounceInHistory(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5249,6 +5468,7 @@ func TestAnnounceInHistory(t *testing.T) {
 	}
 }
 
+// TestAnnounceLogged verifies the scenario described by its name.
 func TestAnnounceLogged(t *testing.T) {
 	s, logsDir := newServerWithLoggerAndAdmins(t)
 	c1 := connectPipe(s)
@@ -5268,6 +5488,7 @@ func TestAnnounceLogged(t *testing.T) {
 	}
 }
 
+// TestAnnounceMissingBody verifies the scenario described by its name.
 func TestAnnounceMissingBody(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5284,6 +5505,7 @@ func TestAnnounceMissingBody(t *testing.T) {
 	}
 }
 
+// TestAnnounceNonAdminInsufficient verifies the scenario described by its name.
 func TestAnnounceNonAdminInsufficient(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5298,6 +5520,7 @@ func TestAnnounceNonAdminInsufficient(t *testing.T) {
 	}
 }
 
+// TestAnnounceByPromotedAdmin verifies the scenario described by its name.
 func TestAnnounceByPromotedAdmin(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5324,6 +5547,7 @@ func TestAnnounceByPromotedAdmin(t *testing.T) {
 	}
 }
 
+// TestAnnounceWhitespaceBodyRejected verifies the scenario described by its name.
 func TestAnnounceWhitespaceBodyRejected(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -5370,6 +5594,7 @@ func newHeartbeatServerWithLogger(t *testing.T) (*Server, string) {
 	return s, logsDir
 }
 
+// TestHeartbeatDeadClientDetectedAndRemoved verifies the scenario described by its name.
 func TestHeartbeatDeadClientDetectedAndRemoved(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5398,6 +5623,7 @@ func TestHeartbeatDeadClientDetectedAndRemoved(t *testing.T) {
 	}
 }
 
+// TestHeartbeatLeaveNotificationBroadcastToAll verifies the scenario described by its name.
 func TestHeartbeatLeaveNotificationBroadcastToAll(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5429,6 +5655,7 @@ func TestHeartbeatLeaveNotificationBroadcastToAll(t *testing.T) {
 	}
 }
 
+// TestHeartbeatRemovalLoggedWithDropReason verifies the scenario described by its name.
 func TestHeartbeatRemovalLoggedWithDropReason(t *testing.T) {
 	s, logsDir := newHeartbeatServerWithLogger(t)
 
@@ -5463,6 +5690,7 @@ func TestHeartbeatRemovalLoggedWithDropReason(t *testing.T) {
 	}
 }
 
+// TestHeartbeatInvisibleUnderNormalConditions verifies the scenario described by its name.
 func TestHeartbeatInvisibleUnderNormalConditions(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5499,6 +5727,7 @@ func TestHeartbeatInvisibleUnderNormalConditions(t *testing.T) {
 	}
 }
 
+// TestHeartbeatTimeoutDisconnectsUnresponsiveClient verifies the scenario described by its name.
 func TestHeartbeatTimeoutDisconnectsUnresponsiveClient(t *testing.T) {
 	// Spec 11: "A client that fails to respond within 5 seconds of a health check
 	// is treated as disconnected." With net.Pipe(), not reading causes the heartbeat
@@ -5527,6 +5756,7 @@ func TestHeartbeatTimeoutDisconnectsUnresponsiveClient(t *testing.T) {
 	}
 }
 
+// TestHeartbeatSlowButAliveNotRemoved verifies the scenario described by its name.
 func TestHeartbeatSlowButAliveNotRemoved(t *testing.T) {
 	// Verify that a client who actively reads (consuming heartbeat probes) stays
 	// connected through multiple heartbeat cycles. The pipe reader drains data
@@ -5559,6 +5789,7 @@ func TestHeartbeatSlowButAliveNotRemoved(t *testing.T) {
 	}
 }
 
+// TestHeartbeatActiveSenderExemption verifies the scenario described by its name.
 func TestHeartbeatActiveSenderExemption(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5577,6 +5808,7 @@ func TestHeartbeatActiveSenderExemption(t *testing.T) {
 	}
 }
 
+// TestHeartbeatCommandsCountAsActivity verifies the scenario described by its name.
 func TestHeartbeatCommandsCountAsActivity(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5595,6 +5827,7 @@ func TestHeartbeatCommandsCountAsActivity(t *testing.T) {
 	}
 }
 
+// TestHeartbeatDoesNotInterfereWithMessages verifies the scenario described by its name.
 func TestHeartbeatDoesNotInterfereWithMessages(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5632,6 +5865,7 @@ func TestHeartbeatDoesNotInterfereWithMessages(t *testing.T) {
 	}
 }
 
+// TestHeartbeatAllClientsUnreachable verifies the scenario described by its name.
 func TestHeartbeatAllClientsUnreachable(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5667,6 +5901,7 @@ func TestHeartbeatAllClientsUnreachable(t *testing.T) {
 	}
 }
 
+// TestHeartbeatDetectionWithinExpectedTime verifies the scenario described by its name.
 func TestHeartbeatDetectionWithinExpectedTime(t *testing.T) {
 	s := newHeartbeatServer(t)
 
@@ -5696,6 +5931,7 @@ func TestHeartbeatDetectionWithinExpectedTime(t *testing.T) {
 	}
 }
 
+// TestHeartbeatServerLoadDelayNoPenalty verifies the scenario described by its name.
 func TestHeartbeatServerLoadDelayNoPenalty(t *testing.T) {
 	// This test verifies that if the server-side heartbeat ticker fires late
 	// (due to server load), the client is not penalized.
@@ -5721,6 +5957,7 @@ func TestHeartbeatServerLoadDelayNoPenalty(t *testing.T) {
 	}
 }
 
+// TestHeartbeatStopsDuringShutdown verifies the scenario described by its name.
 func TestHeartbeatStopsDuringShutdown(t *testing.T) {
 	// Use default (disabled) heartbeat — we're testing that the heartbeat goroutine
 	// exits cleanly when the server shuts down. With pipe connections, the probe
@@ -5747,6 +5984,7 @@ func TestHeartbeatStopsDuringShutdown(t *testing.T) {
 	}
 }
 
+// TestHeartbeatTimeoutOpensQueueSlot verifies the scenario described by its name.
 func TestHeartbeatTimeoutOpensQueueSlot(t *testing.T) {
 	// Spec 11 + Spec 03: when heartbeat removes an unresponsive client,
 	// a queued client should be admitted (admitFromRoomQueue triggered).
@@ -5814,6 +6052,7 @@ func TestHeartbeatTimeoutOpensQueueSlot(t *testing.T) {
 
 // ==================== Task 23: Midnight Log Rotation ====================
 
+// TestMidnightClearHistoryResetsInMemory verifies the scenario described by its name.
 func TestMidnightClearHistoryResetsInMemory(t *testing.T) {
 	// ClearHistory() empties in-memory history so new joiners after midnight see only new-day events.
 	s := New("0")
@@ -5834,6 +6073,7 @@ func TestMidnightClearHistoryResetsInMemory(t *testing.T) {
 	}
 }
 
+// TestMidnightHistoryResetNewJoinerSeesOnlyNewDay verifies the scenario described by its name.
 func TestMidnightHistoryResetNewJoinerSeesOnlyNewDay(t *testing.T) {
 	// After midnight rotation, a new client joining should see only events after midnight.
 	s, _ := newServerWithLogger(t)
@@ -5866,6 +6106,7 @@ func TestMidnightHistoryResetNewJoinerSeesOnlyNewDay(t *testing.T) {
 	}
 }
 
+// TestMidnightLoggerSwitchesFileOnDateChange verifies the scenario described by its name.
 func TestMidnightLoggerSwitchesFileOnDateChange(t *testing.T) {
 	// Activity before midnight goes to the old file; activity after midnight goes to the new file.
 	// The logger routes based on message timestamp, so messages with different dates go to different files.
@@ -5914,6 +6155,7 @@ func TestMidnightLoggerSwitchesFileOnDateChange(t *testing.T) {
 	}
 }
 
+// TestMidnightNoEntriesLostOrDuplicated verifies the scenario described by its name.
 func TestMidnightNoEntriesLostOrDuplicated(t *testing.T) {
 	// Messages around the midnight boundary should each appear exactly once in the correct file.
 	tmpDir := t.TempDir()
@@ -5965,6 +6207,7 @@ func TestMidnightNoEntriesLostOrDuplicated(t *testing.T) {
 	}
 }
 
+// TestMidnightLogFileNameUpdates verifies the scenario described by its name.
 func TestMidnightLogFileNameUpdates(t *testing.T) {
 	// Log file name changes to reflect the new date after midnight.
 	tmpDir := t.TempDir()
@@ -5995,6 +6238,7 @@ func TestMidnightLogFileNameUpdates(t *testing.T) {
 	}
 }
 
+// TestMidnightConnectedClientsUnaffected verifies the scenario described by its name.
 func TestMidnightConnectedClientsUnaffected(t *testing.T) {
 	// Already-connected clients are not disconnected or disrupted by midnight rotation.
 	s, _ := newServerWithLogger(t)
@@ -6032,6 +6276,7 @@ func TestMidnightConnectedClientsUnaffected(t *testing.T) {
 	}
 }
 
+// TestMidnightWatcherStopsOnShutdown verifies the scenario described by its name.
 func TestMidnightWatcherStopsOnShutdown(t *testing.T) {
 	// The midnight watcher goroutine exits cleanly when the server shuts down.
 	s := New("0")
@@ -6059,6 +6304,7 @@ func TestMidnightWatcherStopsOnShutdown(t *testing.T) {
 	}
 }
 
+// TestMidnightHistoryAccumulatesAfterClear verifies the scenario described by its name.
 func TestMidnightHistoryAccumulatesAfterClear(t *testing.T) {
 	// After midnight clear, new events accumulate in a fresh history.
 	s := New("0")
@@ -6083,6 +6329,7 @@ func TestMidnightHistoryAccumulatesAfterClear(t *testing.T) {
 	}
 }
 
+// TestMidnightConcurrentClearAndAdd verifies the scenario described by its name.
 func TestMidnightConcurrentClearAndAdd(t *testing.T) {
 	// ClearHistory and AddHistory are safe to call concurrently (no race).
 	s := New("0")
@@ -6116,6 +6363,7 @@ func TestMidnightConcurrentClearAndAdd(t *testing.T) {
 // helper: onboard a client and drain the first prompt. Returns the prompt
 // text for verification. Uses a more specific delimiter to avoid matching
 // echo characters in interactive mode.
+// onboardAndDrain provides the behavior described by its name.
 func onboardAndDrain(conn net.Conn, name string) (string, error) {
 	text, err := readUntil(conn, "[ENTER YOUR NAME]:", 2*time.Second)
 	if err != nil {
@@ -6134,6 +6382,7 @@ func onboardAndDrain(conn net.Conn, name string) (string, error) {
 
 // helper: send a line character by character (simulates raw terminal input).
 // Each character is a separate Write, mimicking real netcat raw mode.
+// sendCharByChar provides the behavior described by its name.
 func sendCharByChar(conn net.Conn, line string) {
 	for _, b := range []byte(line) {
 		conn.Write([]byte{b})
@@ -6141,6 +6390,7 @@ func sendCharByChar(conn net.Conn, line string) {
 }
 
 // helper: read all available data from a connection with a short timeout.
+// readAvailable provides the behavior described by its name.
 func readAvailable(conn net.Conn, timeout time.Duration) string {
 	conn.SetReadDeadline(time.Now().Add(timeout))
 	var buf strings.Builder
@@ -6161,6 +6411,7 @@ func readAvailable(conn net.Conn, timeout time.Duration) string {
 // TestInputContinuityPartialInputPreserved verifies that when client A is
 // typing "hel" and client B's message arrives, client A's prompt re-appears
 // with "hel" intact after the incoming message.
+// TestInputContinuityPartialInputPreserved verifies the scenario described by its name.
 func TestInputContinuityPartialInputPreserved(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute // disable heartbeat interference
@@ -6207,6 +6458,7 @@ func TestInputContinuityPartialInputPreserved(t *testing.T) {
 
 // TestInputContinuityMultipleMessages verifies that multiple incoming messages
 // while typing each preserve the partial input.
+// TestInputContinuityMultipleMessages verifies the scenario described by its name.
 func TestInputContinuityMultipleMessages(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute
@@ -6257,6 +6509,7 @@ func TestInputContinuityMultipleMessages(t *testing.T) {
 
 // TestInputContinuityJoinLeaveNotification verifies that join/leave
 // notifications arriving mid-type preserve partial input.
+// TestInputContinuityJoinLeaveNotification verifies the scenario described by its name.
 func TestInputContinuityJoinLeaveNotification(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute
@@ -6304,6 +6557,7 @@ func TestInputContinuityJoinLeaveNotification(t *testing.T) {
 
 // TestInputContinuityWhisperMidType verifies that whisper notifications
 // arriving mid-type preserve partial input.
+// TestInputContinuityWhisperMidType verifies the scenario described by its name.
 func TestInputContinuityWhisperMidType(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute
@@ -6337,6 +6591,7 @@ func TestInputContinuityWhisperMidType(t *testing.T) {
 
 // TestInputContinuityAnnouncementMidType verifies that announcements
 // arriving mid-type preserve partial input.
+// TestInputContinuityAnnouncementMidType verifies the scenario described by its name.
 func TestInputContinuityAnnouncementMidType(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute
@@ -6373,6 +6628,7 @@ func TestInputContinuityAnnouncementMidType(t *testing.T) {
 
 // TestInputContinuityModerationMidType verifies that moderation events
 // arriving mid-type preserve partial input.
+// TestInputContinuityModerationMidType verifies the scenario described by its name.
 func TestInputContinuityModerationMidType(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute
@@ -6414,6 +6670,7 @@ func TestInputContinuityModerationMidType(t *testing.T) {
 
 // TestInputContinuityNoCharactersLostOrDuplicated verifies that after receiving
 // a broadcast mid-typing, the client can complete their message with no loss.
+// TestInputContinuityNoCharactersLostOrDuplicated verifies the scenario described by its name.
 func TestInputContinuityNoCharactersLostOrDuplicated(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute
@@ -6449,6 +6706,7 @@ func TestInputContinuityNoCharactersLostOrDuplicated(t *testing.T) {
 
 // TestInputContinuityBackspaceTracking verifies that backspace correctly
 // updates the tracked partial input for redraw.
+// TestInputContinuityBackspaceTracking verifies the scenario described by its name.
 func TestInputContinuityBackspaceTracking(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = time.Minute
@@ -6500,6 +6758,7 @@ func TestInputContinuityBackspaceTracking(t *testing.T) {
 
 // TestInputContinuityConnectionUnstableWarning verifies that the
 // "Connection unstable..." warning arriving mid-type preserves partial input.
+// TestInputContinuityConnectionUnstableWarning verifies the scenario described by its name.
 func TestInputContinuityConnectionUnstableWarning(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 100 * time.Millisecond
@@ -6536,6 +6795,7 @@ func TestInputContinuityConnectionUnstableWarning(t *testing.T) {
 
 // TestEdgeCaseRapidConnectDisconnectNoGoroutineLeak verifies that 100 rapid
 // connect/disconnect cycles do not leak goroutines or cause panics.
+// TestEdgeCaseRapidConnectDisconnectNoGoroutineLeak verifies the scenario described by its name.
 func TestEdgeCaseRapidConnectDisconnectNoGoroutineLeak(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 1 * time.Hour // disable heartbeat interference
@@ -6571,6 +6831,7 @@ func TestEdgeCaseRapidConnectDisconnectNoGoroutineLeak(t *testing.T) {
 
 // TestEdgeCaseRapidConnectDisconnectWithOnboardingNoLeak verifies that clients
 // who complete onboarding and immediately disconnect don't leak goroutines.
+// TestEdgeCaseRapidConnectDisconnectWithOnboardingNoLeak verifies the scenario described by its name.
 func TestEdgeCaseRapidConnectDisconnectWithOnboardingNoLeak(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6603,6 +6864,7 @@ func TestEdgeCaseRapidConnectDisconnectWithOnboardingNoLeak(t *testing.T) {
 
 // TestEdgeCaseBroadcastDuringClientRemoval verifies that broadcasting while a
 // client is being removed does not cause errors or affect remaining clients.
+// TestEdgeCaseBroadcastDuringClientRemoval verifies the scenario described by its name.
 func TestEdgeCaseBroadcastDuringClientRemoval(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6654,6 +6916,7 @@ func TestEdgeCaseBroadcastDuringClientRemoval(t *testing.T) {
 
 // TestEdgeCaseCommandDuringKick verifies that when an admin kicks a client at
 // the same moment the client issues a command, moderation takes precedence.
+// TestEdgeCaseCommandDuringKick verifies the scenario described by its name.
 func TestEdgeCaseCommandDuringKick(t *testing.T) {
 	s := newServerWithAdmins(t)
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6706,6 +6969,7 @@ func TestEdgeCaseCommandDuringKick(t *testing.T) {
 // TestEdgeCaseCommandDuringConnectionDrop verifies that when a client's
 // connection drops while they're processing commands, no error messages
 // are generated and cleanup proceeds cleanly.
+// TestEdgeCaseCommandDuringConnectionDrop verifies the scenario described by its name.
 func TestEdgeCaseCommandDuringConnectionDrop(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6741,6 +7005,7 @@ func TestEdgeCaseCommandDuringConnectionDrop(t *testing.T) {
 
 // TestEdgeCaseQueueAdmissionDuringLeave verifies that when an active client
 // leaves while a queued client is waiting, exactly one queued client is admitted.
+// TestEdgeCaseQueueAdmissionDuringLeave verifies the scenario described by its name.
 func TestEdgeCaseQueueAdmissionDuringLeave(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6805,6 +7070,7 @@ func TestEdgeCaseQueueAdmissionDuringLeave(t *testing.T) {
 
 // TestEdgeCaseAdminActionOnDisconnectingClient verifies that kicking a client
 // who is simultaneously disconnecting does not panic.
+// TestEdgeCaseAdminActionOnDisconnectingClient verifies the scenario described by its name.
 func TestEdgeCaseAdminActionOnDisconnectingClient(t *testing.T) {
 	s := newServerWithAdmins(t)
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6852,6 +7118,7 @@ func TestEdgeCaseAdminActionOnDisconnectingClient(t *testing.T) {
 // TestEdgeCaseKickAndQueueAdmissionSimultaneous verifies that when a client is
 // kicked (opening a slot) and the queue has waiting clients, exactly one queued
 // client is admitted without the kicked client blocking the process.
+// TestEdgeCaseKickAndQueueAdmissionSimultaneous verifies the scenario described by its name.
 func TestEdgeCaseKickAndQueueAdmissionSimultaneous(t *testing.T) {
 	s := newServerWithAdmins(t)
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6898,6 +7165,7 @@ func TestEdgeCaseKickAndQueueAdmissionSimultaneous(t *testing.T) {
 
 // TestEdgeCaseFiftyClientsSameNameOnboarding verifies that when 50 clients
 // try to onboard with the same name simultaneously, exactly one succeeds.
+// TestEdgeCaseFiftyClientsSameNameOnboarding verifies the scenario described by its name.
 func TestEdgeCaseFiftyClientsSameNameOnboarding(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6939,6 +7207,7 @@ func TestEdgeCaseFiftyClientsSameNameOnboarding(t *testing.T) {
 // TestEdgeCaseTwoNameChangesToSameNameSimultaneous re-verifies that two clients
 // trying to rename to the same new name concurrently results in exactly one success.
 // This is specifically for the RenameClient atomicity check under race conditions.
+// TestEdgeCaseTwoNameChangesToSameNameSimultaneous verifies the scenario described by its name.
 func TestEdgeCaseTwoNameChangesToSameNameSimultaneous(t *testing.T) {
 	s := New("0")
 	s.HeartbeatInterval = 1 * time.Hour
@@ -6986,6 +7255,7 @@ func TestEdgeCaseTwoNameChangesToSameNameSimultaneous(t *testing.T) {
 
 // ==================== Task 28: Data Race Fixes (Muted, Admin, LastActivity) ====================
 
+// TestConcurrentMuteUnmuteWhileTargetSends verifies the scenario described by its name.
 func TestConcurrentMuteUnmuteWhileTargetSends(t *testing.T) {
 	// Spec 09 + race safety: concurrent mute/unmute from admin while target sends
 	// messages must not race. This test is meaningless without -race but documents
@@ -7028,6 +7298,7 @@ func TestConcurrentMuteUnmuteWhileTargetSends(t *testing.T) {
 	wg.Wait()
 }
 
+// TestConcurrentPromoteDemoteWhileTargetRunsHelp verifies the scenario described by its name.
 func TestConcurrentPromoteDemoteWhileTargetRunsHelp(t *testing.T) {
 	// Race safety: concurrent promote/demote while target runs /help
 	s := New("0")
@@ -7065,6 +7336,7 @@ func TestConcurrentPromoteDemoteWhileTargetRunsHelp(t *testing.T) {
 	wg.Wait()
 }
 
+// TestConcurrentListWhileAnotherSends verifies the scenario described by its name.
 func TestConcurrentListWhileAnotherSends(t *testing.T) {
 	// Race safety: /list reads LastActivity while another client updates it
 	s := New("0")
@@ -7104,6 +7376,7 @@ func TestConcurrentListWhileAnotherSends(t *testing.T) {
 
 // ==================== Task 29: Promote/Demote Broadcast ====================
 
+// TestPromoteBroadcastToAllClients verifies the scenario described by its name.
 func TestPromoteBroadcastToAllClients(t *testing.T) {
 	// Spec 09 §Visibility: promote must broadcast to all connected clients.
 	s := New("0")
@@ -7149,6 +7422,7 @@ func TestPromoteBroadcastToAllClients(t *testing.T) {
 	}
 }
 
+// TestDemoteBroadcastToAllClients verifies the scenario described by its name.
 func TestDemoteBroadcastToAllClients(t *testing.T) {
 	// Spec 09 §Visibility: demote must broadcast to all connected clients.
 	s := New("0")
@@ -7205,6 +7479,7 @@ func TestDemoteBroadcastToAllClients(t *testing.T) {
 // calling Shutdown() simultaneously do not panic, deadlock, or double-close
 // channels. This covers the spec 01 §Edge Cases requirement: "Multiple rapid
 // interrupt signals: server processes the first and ignores subsequent ones."
+// TestShutdownConcurrentMultipleSignals verifies the scenario described by its name.
 func TestShutdownConcurrentMultipleSignals(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 100 * time.Millisecond
@@ -7241,6 +7516,7 @@ func TestShutdownConcurrentMultipleSignals(t *testing.T) {
 // recipient disconnects between typing the whisper and pressing Enter, the
 // sender receives a "not found" error rather than a false delivery confirmation.
 // (Spec 07 §Edge Cases)
+// TestWhisperRecipientDisconnectedBeforeDelivery verifies the scenario described by its name.
 func TestWhisperRecipientDisconnectedBeforeDelivery(t *testing.T) {
 	s := New("0")
 
@@ -7275,6 +7551,7 @@ func TestWhisperRecipientDisconnectedBeforeDelivery(t *testing.T) {
 // down, ALL queued clients (not just the first) receive the shutdown message.
 // This strengthens TestShutdownNotifiesQueuedClients which only tested a single
 // queued client. (Spec 03 §Edge Cases)
+// TestShutdownNotifiesMultipleQueuedClients verifies the scenario described by its name.
 func TestShutdownNotifiesMultipleQueuedClients(t *testing.T) {
 	s := New("0")
 	s.ShutdownTimeout = 300 * time.Millisecond
@@ -7316,6 +7593,7 @@ func TestShutdownNotifiesMultipleQueuedClients(t *testing.T) {
 // TestEdgeCaseAllRaceDetectorPasses is a meta-test that documents that the full
 // test suite passes with -race enabled. This test itself is a no-op — the real
 // verification is running `go test ./... -race`.
+// TestEdgeCaseAllRaceDetectorPasses verifies the scenario described by its name.
 func TestEdgeCaseAllRaceDetectorPasses(t *testing.T) {
 	// This test is intentionally a no-op. Its presence documents that
 	// Task 24 requires all tests to pass with the race detector enabled.
@@ -7331,6 +7609,7 @@ func TestEdgeCaseAllRaceDetectorPasses(t *testing.T) {
 // TestOperatorKickQueuedUserByIP verifies that the server operator can kick a
 // queued user by IP, removing them from the queue and blocking reconnection for
 // 5 minutes. (Spec 09 §Edge Cases)
+// TestOperatorKickQueuedUserByIP verifies the scenario described by its name.
 func TestOperatorKickQueuedUserByIP(t *testing.T) {
 	s := newServerWithAdmins(t)
 
@@ -7386,6 +7665,7 @@ func TestOperatorKickQueuedUserByIP(t *testing.T) {
 // TestOperatorBanQueuedUserByIP verifies that the server operator can ban a
 // queued user by IP, removing them from the queue and permanently blocking the
 // IP for the server session. (Spec 09 §Edge Cases)
+// TestOperatorBanQueuedUserByIP verifies the scenario described by its name.
 func TestOperatorBanQueuedUserByIP(t *testing.T) {
 	s := newServerWithAdmins(t)
 
@@ -7441,6 +7721,7 @@ func TestOperatorBanQueuedUserByIP(t *testing.T) {
 // TestOperatorKickQueuedPositionUpdates verifies that after kicking a queued
 // user by IP, remaining queued clients receive updated position numbers.
 // (Spec 09 §Edge Cases + Spec 03 position updates)
+// TestOperatorKickQueuedPositionUpdates verifies the scenario described by its name.
 func TestOperatorKickQueuedPositionUpdates(t *testing.T) {
 	s := newServerWithAdmins(t)
 
@@ -7501,6 +7782,7 @@ func TestOperatorKickQueuedPositionUpdates(t *testing.T) {
 // TestAdminKickQueuedUserNotFound verifies that a client admin (non-operator)
 // trying to /kick a queued user gets "not found" — admins cannot see IPs and
 // queued users have no name to target.
+// TestAdminKickQueuedUserNotFound verifies the scenario described by its name.
 func TestAdminKickQueuedUserNotFound(t *testing.T) {
 	s := newServerWithAdmins(t)
 
@@ -7544,6 +7826,7 @@ func TestAdminKickQueuedUserNotFound(t *testing.T) {
 
 // TestOperatorListShowsQueuedClients verifies that the operator's /list command
 // shows queued clients with their IPs, enabling IP-based moderation.
+// TestOperatorListShowsQueuedClients verifies the scenario described by its name.
 func TestOperatorListShowsQueuedClients(t *testing.T) {
 	s := newServerWithAdmins(t)
 
@@ -7596,6 +7879,7 @@ func TestOperatorListShowsQueuedClients(t *testing.T) {
 // the server to start with no saved admins and print a warning to stderr,
 // as required by spec 10 edge case: "admins.json missing or corrupted on startup:
 // server starts with no saved admins, warning on server console."
+// TestLoadAdminsCorruptJSON verifies the scenario described by its name.
 func TestLoadAdminsCorruptJSON(t *testing.T) {
 	s := New("0")
 	tmpDir := t.TempDir()
@@ -7652,6 +7936,7 @@ func TestLoadAdminsCorruptJSON(t *testing.T) {
 
 // ==================== Multi-Room Tests ====================
 
+// TestRoomSelectionDefault verifies the scenario described by its name.
 func TestRoomSelectionDefault(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -7667,6 +7952,7 @@ func TestRoomSelectionDefault(t *testing.T) {
 	}
 }
 
+// TestRoomSelectionCustom verifies the scenario described by its name.
 func TestRoomSelectionCustom(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -7682,6 +7968,7 @@ func TestRoomSelectionCustom(t *testing.T) {
 	}
 }
 
+// TestRoomSelectionInvalidName verifies the scenario described by its name.
 func TestRoomSelectionInvalidName(t *testing.T) {
 	s := New("0")
 	conn := connectPipe(s)
@@ -7711,6 +7998,7 @@ func TestRoomSelectionInvalidName(t *testing.T) {
 	}
 }
 
+// TestRoomIsolationMessages verifies the scenario described by its name.
 func TestRoomIsolationMessages(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7718,7 +8006,7 @@ func TestRoomIsolationMessages(t *testing.T) {
 	c2 := connectPipe(s)
 	defer c2.Close()
 
-	onboard(c1, "alice")                // general
+	onboard(c1, "alice")          // general
 	onboardRoom(c2, "bob", "dev") // dev
 
 	// Alice sends a message — bob should NOT see it
@@ -7741,6 +8029,7 @@ func TestRoomIsolationMessages(t *testing.T) {
 	}
 }
 
+// TestRoomIsolationJoinLeave verifies the scenario described by its name.
 func TestRoomIsolationJoinLeave(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7768,6 +8057,7 @@ func TestRoomIsolationJoinLeave(t *testing.T) {
 	}
 }
 
+// TestSwitchRoomBasic verifies the scenario described by its name.
 func TestSwitchRoomBasic(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7777,8 +8067,8 @@ func TestSwitchRoomBasic(t *testing.T) {
 	c3 := connectPipe(s)
 	defer c3.Close()
 
-	onboard(c1, "alice")                // general
-	onboard(c2, "bob")                  // general
+	onboard(c1, "alice")            // general
+	onboard(c2, "bob")              // general
 	onboardRoom(c3, "carol", "dev") // dev
 
 	readUntil(c1, "bob has joined", time.Second)
@@ -7814,6 +8104,7 @@ func TestSwitchRoomBasic(t *testing.T) {
 	}
 }
 
+// TestSwitchRoomFull verifies the scenario described by its name.
 func TestSwitchRoomFull(t *testing.T) {
 	s := New("0")
 	// Fill "dev" room with 10 clients
@@ -7841,6 +8132,7 @@ func TestSwitchRoomFull(t *testing.T) {
 	}
 }
 
+// TestSwitchRoomSameRoom verifies the scenario described by its name.
 func TestSwitchRoomSameRoom(t *testing.T) {
 	s := New("0")
 	c := connectPipe(s)
@@ -7854,6 +8146,7 @@ func TestSwitchRoomSameRoom(t *testing.T) {
 	}
 }
 
+// TestCreateRoomBasic verifies the scenario described by its name.
 func TestCreateRoomBasic(t *testing.T) {
 	s := New("0")
 	c := connectPipe(s)
@@ -7871,6 +8164,7 @@ func TestCreateRoomBasic(t *testing.T) {
 	}
 }
 
+// TestCreateRoomAlreadyExists verifies the scenario described by its name.
 func TestCreateRoomAlreadyExists(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7891,6 +8185,7 @@ func TestCreateRoomAlreadyExists(t *testing.T) {
 	}
 }
 
+// TestRoomsCommandListsAll verifies the scenario described by its name.
 func TestRoomsCommandListsAll(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7898,7 +8193,7 @@ func TestRoomsCommandListsAll(t *testing.T) {
 	c2 := connectPipe(s)
 	defer c2.Close()
 
-	onboard(c1, "alice")                // general
+	onboard(c1, "alice")          // general
 	onboardRoom(c2, "bob", "dev") // dev
 
 	fmt.Fprintf(c1, "/rooms\n")
@@ -7915,6 +8210,7 @@ func TestRoomsCommandListsAll(t *testing.T) {
 	}
 }
 
+// TestListShowsRoomMembersOnly verifies the scenario described by its name.
 func TestListShowsRoomMembersOnly(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7922,7 +8218,7 @@ func TestListShowsRoomMembersOnly(t *testing.T) {
 	c2 := connectPipe(s)
 	defer c2.Close()
 
-	onboard(c1, "alice")                // general
+	onboard(c1, "alice")          // general
 	onboardRoom(c2, "bob", "dev") // dev
 
 	fmt.Fprintf(c1, "/list\n")
@@ -7936,6 +8232,7 @@ func TestListShowsRoomMembersOnly(t *testing.T) {
 	}
 }
 
+// TestKickSameRoomOnly verifies the scenario described by its name.
 func TestKickSameRoomOnly(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -7961,6 +8258,7 @@ func TestKickSameRoomOnly(t *testing.T) {
 	}
 }
 
+// TestWhisperCrossRoom verifies the scenario described by its name.
 func TestWhisperCrossRoom(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7968,7 +8266,7 @@ func TestWhisperCrossRoom(t *testing.T) {
 	c2 := connectPipe(s)
 	defer c2.Close()
 
-	onboard(c1, "alice")                // general
+	onboard(c1, "alice")          // general
 	onboardRoom(c2, "bob", "dev") // dev
 
 	// Alice whispers to bob across rooms
@@ -7982,6 +8280,7 @@ func TestWhisperCrossRoom(t *testing.T) {
 	}
 }
 
+// TestAnnouncementAllRooms verifies the scenario described by its name.
 func TestAnnouncementAllRooms(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -7989,8 +8288,8 @@ func TestAnnouncementAllRooms(t *testing.T) {
 	c2 := connectPipe(s)
 	defer c2.Close()
 
-	onboard(c1, "admin1")                // general
-	onboardRoom(c2, "bob", "dev")  // dev
+	onboard(c1, "admin1")         // general
+	onboardRoom(c2, "bob", "dev") // dev
 
 	s.GetClient("admin1").SetAdmin(true)
 
@@ -8004,6 +8303,7 @@ func TestAnnouncementAllRooms(t *testing.T) {
 	}
 }
 
+// TestNameChangeRoomScoped verifies the scenario described by its name.
 func TestNameChangeRoomScoped(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -8013,8 +8313,8 @@ func TestNameChangeRoomScoped(t *testing.T) {
 	c3 := connectPipe(s)
 	defer c3.Close()
 
-	onboard(c1, "alice")                 // general
-	onboard(c2, "bob")                   // general
+	onboard(c1, "alice")            // general
+	onboard(c2, "bob")              // general
 	onboardRoom(c3, "carol", "dev") // dev
 
 	readUntil(c1, "bob has joined", time.Second)
@@ -8035,6 +8335,7 @@ func TestNameChangeRoomScoped(t *testing.T) {
 	}
 }
 
+// TestMuteIsGlobal verifies the scenario described by its name.
 func TestMuteIsGlobal(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -8066,6 +8367,7 @@ func TestMuteIsGlobal(t *testing.T) {
 	}
 }
 
+// TestRoomAutoDelete verifies the scenario described by its name.
 func TestRoomAutoDelete(t *testing.T) {
 	s := New("0")
 	c := connectPipe(s)
@@ -8097,6 +8399,7 @@ func TestRoomAutoDelete(t *testing.T) {
 	}
 }
 
+// TestRoomDefaultProtected verifies the scenario described by its name.
 func TestRoomDefaultProtected(t *testing.T) {
 	s := New("0")
 	c := connectPipe(s)
@@ -8122,6 +8425,7 @@ func TestRoomDefaultProtected(t *testing.T) {
 	}
 }
 
+// TestRoomQueuePerRoom verifies the scenario described by its name.
 func TestRoomQueuePerRoom(t *testing.T) {
 	s := New("0")
 
@@ -8145,6 +8449,7 @@ func TestRoomQueuePerRoom(t *testing.T) {
 	}
 }
 
+// TestBanDisconnectsAcrossRooms verifies the scenario described by its name.
 func TestBanDisconnectsAcrossRooms(t *testing.T) {
 	s := newServerWithAdmins(t)
 	s.HeartbeatInterval = 1 * time.Hour
@@ -8178,6 +8483,7 @@ func TestBanDisconnectsAcrossRooms(t *testing.T) {
 	}
 }
 
+// TestOperatorListShowsAllRooms verifies the scenario described by its name.
 func TestOperatorListShowsAllRooms(t *testing.T) {
 	s := newServerWithAdmins(t)
 	c1 := connectPipe(s)
@@ -8185,7 +8491,7 @@ func TestOperatorListShowsAllRooms(t *testing.T) {
 	c2 := connectPipe(s)
 	defer c2.Close()
 
-	onboard(c1, "alice")                // general
+	onboard(c1, "alice")          // general
 	onboardRoom(c2, "bob", "dev") // dev
 
 	var buf strings.Builder
@@ -8208,6 +8514,7 @@ func TestOperatorListShowsAllRooms(t *testing.T) {
 	}
 }
 
+// TestOperatorRoomsCommand verifies the scenario described by its name.
 func TestOperatorRoomsCommand(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)
@@ -8229,6 +8536,7 @@ func TestOperatorRoomsCommand(t *testing.T) {
 	}
 }
 
+// TestSwitchRoomHistoryDelivered verifies the scenario described by its name.
 func TestSwitchRoomHistoryDelivered(t *testing.T) {
 	s := New("0")
 	c1 := connectPipe(s)

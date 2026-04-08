@@ -26,7 +26,7 @@ func (s *Server) UntrackClient(c *client.Client) {
 
 // RegisterClient atomically checks uniqueness and adds the client to the global map.
 // Room assignment happens separately via JoinRoom. Returns nil on success or a
-// generic error if the name is taken or reserved.
+// RegisterClient reserves a username globally so rooms, whispers, and moderation can all resolve the same client.
 func (s *Server) RegisterClient(c *client.Client, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -44,6 +44,7 @@ func (s *Server) RegisterClient(c *client.Client, name string) error {
 	return nil
 }
 
+// RemoveClient removes a user from the global and room-local indexes without closing the underlying connection.
 func (s *Server) RemoveClient(username string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -58,18 +59,21 @@ func (s *Server) RemoveClient(username string) {
 	}
 }
 
+// GetClient returns the active client for the given username, or nil if the user is not connected.
 func (s *Server) GetClient(name string) *client.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.clients[name]
 }
 
+// GetClientCount returns the number of actively registered users across all rooms.
 func (s *Server) GetClientCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.clients)
 }
 
+// GetClientNames returns all active usernames in sorted order for stable command output.
 func (s *Server) GetClientNames() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -80,12 +84,13 @@ func (s *Server) GetClientNames() []string {
 	return names
 }
 
+// IsReservedName reports whether a username is blocked from client registration.
 func (s *Server) IsReservedName(name string) bool {
 	return s.reservedNames[name]
 }
 
 // RenameClient atomically swaps the key in the client and room maps.
-// Returns false if newName is already taken or reserved.
+// RenameClient updates the global and room-local name indexes without disconnecting the client.
 func (s *Server) RenameClient(c *client.Client, oldName, newName string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -110,6 +115,7 @@ func (s *Server) RenameClient(c *client.Client, oldName, newName string) bool {
 
 // GetClientsByIP returns all registered clients whose IP matches the given host.
 // Pass exclude to skip a specific username (e.g. the command issuer).
+// GetClientsByIP returns connected clients whose host matches the supplied IP, excluding one username when needed.
 func (s *Server) GetClientsByIP(host string, exclude string) []*client.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

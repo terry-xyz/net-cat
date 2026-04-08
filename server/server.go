@@ -22,11 +22,11 @@ type QueueEntry struct {
 type Server struct {
 	port            string
 	listener        net.Listener
-	clients         map[string]*client.Client    // global username→client for cross-room lookups
-	allClients      map[*client.Client]struct{}   // all connections in any phase (name-prompt, queued, active)
+	clients         map[string]*client.Client   // global username→client for cross-room lookups
+	allClients      map[*client.Client]struct{} // all connections in any phase (name-prompt, queued, active)
 	mu              sync.RWMutex
-	rooms           map[string]*Room              // room name → Room (history+queue are per-room)
-	DefaultRoom     string                        // default room name ("general")
+	rooms           map[string]*Room // room name → Room (history+queue are per-room)
+	DefaultRoom     string           // default room name ("general")
 	reservedNames   map[string]bool
 	quit            chan struct{}
 	shutdownOnce    sync.Once
@@ -53,10 +53,10 @@ type Server struct {
 // New creates a server that will listen on the given port.
 func New(port string) *Server {
 	s := &Server{
-		port:       port,
-		clients:    make(map[string]*client.Client),
-		allClients: make(map[*client.Client]struct{}),
-		rooms:      make(map[string]*Room),
+		port:        port,
+		clients:     make(map[string]*client.Client),
+		allClients:  make(map[*client.Client]struct{}),
+		rooms:       make(map[string]*Room),
 		DefaultRoom: "general",
 		reservedNames: map[string]bool{
 			"Server": true,
@@ -95,8 +95,7 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Shutdown sends the goodbye message, waits for clients to disconnect, then
-// force-closes remaining connections. Idempotent via sync.Once.
+// Shutdown stops new accepts, notifies tracked clients, and closes remaining connections after a grace period.
 func (s *Server) Shutdown() {
 	s.shutdownOnce.Do(func() {
 		close(s.quit)
@@ -151,6 +150,7 @@ func (s *Server) Shutdown() {
 	})
 }
 
+// acceptLoop accepts new TCP connections until shutdown closes the listener.
 func (s *Server) acceptLoop() {
 	for {
 		conn, err := s.listener.Accept()
@@ -182,8 +182,7 @@ func (s *Server) GetQueueLength() int {
 	return total
 }
 
-// RemoveFromQueueByIP removes all queue entries across all rooms whose IP matches
-// the given address and returns their clients.
+// RemoveFromQueueByIP removes queued clients with the same IP across every room.
 func (s *Server) RemoveFromQueueByIP(ip string) []*client.Client {
 	return s.RemoveFromAllRoomQueuesByIP(ip)
 }
@@ -200,8 +199,7 @@ func (s *Server) IsShuttingDown() bool {
 
 // ---------- heartbeat ----------
 
-// startHeartbeat runs a per-client goroutine that periodically probes the connection
-// to detect dead/ghost clients. A null byte (\x00) write probe is used because it is
+// A null byte (\x00) write probe is used because it is
 // invisible to most terminal emulators (including netcat).
 //
 // The probe runs in a separate goroutine to avoid calling SetWriteDeadline, which
@@ -213,6 +211,7 @@ func (s *Server) IsShuttingDown() bool {
 //
 // For real TCP connections, TCP keepalive (enabled in handleConnection) provides an
 // additional layer of dead peer detection at the OS level.
+// startHeartbeat probes idle clients so dead connections are dropped without waiting for user traffic.
 func (s *Server) startHeartbeat(c *client.Client) {
 	interval := s.HeartbeatInterval
 	if interval == 0 {
@@ -282,10 +281,8 @@ func (s *Server) startHeartbeat(c *client.Client) {
 
 // ---------- midnight log rotation ----------
 
-// startMidnightWatcher runs a goroutine that detects day boundaries and resets
-// in-memory history at midnight. The logger already handles file switching based
-// on message timestamps (via ensureFile), so this only needs to clear the history
-// so that clients joining after midnight see only the new day's events.
+// The logger already handles file switching based on message timestamps, so only the in-memory replay buffer resets here.
+// startMidnightWatcher clears in-memory history at each day boundary so new joins only see the current day.
 func (s *Server) startMidnightWatcher() {
 	for {
 		now := time.Now()

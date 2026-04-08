@@ -21,6 +21,7 @@ import (
 // TestIntegrationPortAlreadyInUseReturnsError verifies that when the port is
 // already occupied by another listener, Server.Start() returns a clear error
 // and does not hang or retry silently. (Spec 01 §Edge Cases)
+// TestIntegrationPortAlreadyInUseReturnsError verifies the scenario described by its name.
 func TestIntegrationPortAlreadyInUseReturnsError(t *testing.T) {
 	// Occupy a random port on all interfaces (matching the server's ":port" bind).
 	blocker, err := net.Listen("tcp", ":0")
@@ -60,18 +61,21 @@ type safeWriter struct {
 	buf strings.Builder
 }
 
+// Write appends test output under a mutex so concurrent operator writes do not race.
 func (w *safeWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.buf.Write(p)
 }
 
+// String returns the buffered integration-test output as a single string.
 func (w *safeWriter) String() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.buf.String()
 }
 
+// Reset clears buffered integration-test output so later assertions start from a clean slate.
 func (w *safeWriter) Reset() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -81,6 +85,7 @@ func (w *safeWriter) Reset() {
 // startIntServer creates a real TCP server with random port, logger, and operator
 // output capture. Returns the server, its listener address, and the temp directory.
 // The server's accept loop runs in a background goroutine.
+// startIntServer boots an integration-test server with isolated temp directories and captured operator output.
 func startIntServer(t *testing.T) (*Server, string, string) {
 	t.Helper()
 	tmpDir := t.TempDir()
@@ -111,6 +116,7 @@ func startIntServer(t *testing.T) (*Server, string, string) {
 
 // startIntServerInDir is like startIntServer but uses a specific directory for
 // logs and admins, enabling crash recovery tests across server instances.
+// startIntServerInDir starts an integration-test server rooted in the supplied temporary directory.
 func startIntServerInDir(t *testing.T, tmpDir string) (*Server, string) {
 	t.Helper()
 	logsDir := filepath.Join(tmpDir, "logs")
@@ -153,6 +159,7 @@ func tcpDial(t *testing.T, addr string) net.Conn {
 
 // tcpOnboard connects to the server, completes onboarding with the given name
 // (default room), and returns the connection ready for interactive messaging.
+// tcpOnboard connects a test client and completes the normal onboarding prompts.
 func tcpOnboard(t *testing.T, addr, name string) net.Conn {
 	t.Helper()
 	conn := tcpDial(t, addr)
@@ -185,6 +192,7 @@ func sendLine(conn net.Conn, name, line string) (string, error) {
 
 // drainFor reads all available data from conn during the given duration.
 // Useful for checking that certain content does NOT appear.
+// drainFor keeps reading from a connection until the timeout expires so tests can inspect all pending output.
 func drainFor(conn net.Conn, d time.Duration) string {
 	conn.SetReadDeadline(time.Now().Add(d))
 	var buf strings.Builder
@@ -232,6 +240,7 @@ func stripAnsi(s string) string {
 // ==================== Test 1: Full Chat Session ====================
 // 3 clients connect, exchange messages, one leaves, new one joins and sees history.
 
+// TestIntegrationFullChatSession verifies the scenario described by its name.
 func TestIntegrationFullChatSession(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -301,6 +310,7 @@ func TestIntegrationFullChatSession(t *testing.T) {
 // Operator promotes client, admin kicks another, operator demotes admin.
 // Client joining after sees events in history.
 
+// TestIntegrationAdminWorkflow verifies the scenario described by its name.
 func TestIntegrationAdminWorkflow(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -383,6 +393,7 @@ func TestIntegrationAdminWorkflow(t *testing.T) {
 // ==================== Test 3: Connection Capacity ====================
 // 10 active + 3 queued, one active leaves, first queued is admitted.
 
+// TestIntegrationConnectionCapacity verifies the scenario described by its name.
 func TestIntegrationConnectionCapacity(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -451,6 +462,7 @@ func TestIntegrationConnectionCapacity(t *testing.T) {
 // ==================== Test 4: Graceful Shutdown ====================
 // 5 connected clients all receive shutdown message.
 
+// TestIntegrationGracefulShutdown verifies the scenario described by its name.
 func TestIntegrationGracefulShutdown(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 
@@ -483,6 +495,7 @@ func TestIntegrationGracefulShutdown(t *testing.T) {
 // ==================== Test 5: Crash Recovery ====================
 // Start server, send messages, stop, restart, new client sees prior history.
 
+// TestIntegrationCrashRecovery verifies the scenario described by its name.
 func TestIntegrationCrashRecovery(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -529,6 +542,7 @@ func TestIntegrationCrashRecovery(t *testing.T) {
 // ==================== Test 6: Name Change ====================
 // Client changes name, all see notification, history includes it.
 
+// TestIntegrationNameChange verifies the scenario described by its name.
 func TestIntegrationNameChange(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -572,6 +586,7 @@ func TestIntegrationNameChange(t *testing.T) {
 // ==================== Test 7: Whisper Privacy ====================
 // Third client never sees the whisper, log file has no whisper.
 
+// TestIntegrationWhisperPrivacy verifies the scenario described by its name.
 func TestIntegrationWhisperPrivacy(t *testing.T) {
 	s, addr, tmpDir := startIntServer(t)
 	defer s.Shutdown()
@@ -632,6 +647,7 @@ func TestIntegrationWhisperPrivacy(t *testing.T) {
 // ==================== Test 8: Mute Flow ====================
 // Muted client cannot send, can use commands, unmuted can send again.
 
+// TestIntegrationMuteFlow verifies the scenario described by its name.
 func TestIntegrationMuteFlow(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -700,6 +716,7 @@ func TestIntegrationMuteFlow(t *testing.T) {
 // ==================== Test 9: Ban Persistence ====================
 // Banned IP cannot reconnect with any name.
 
+// TestIntegrationBanPersistence verifies the scenario described by its name.
 func TestIntegrationBanPersistence(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -735,6 +752,7 @@ func TestIntegrationBanPersistence(t *testing.T) {
 // ==================== Test 10: Kick Cooldown ====================
 // Blocked for 5 minutes, allowed after.
 
+// TestIntegrationKickCooldown verifies the scenario described by its name.
 func TestIntegrationKickCooldown(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -784,6 +802,7 @@ func TestIntegrationKickCooldown(t *testing.T) {
 // ==================== Test 11: Error Sanitization ====================
 // All error messages are free of stack traces, file paths, and internal Go details.
 
+// TestIntegrationErrorSanitization verifies the scenario described by its name.
 func TestIntegrationErrorSanitization(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -861,6 +880,7 @@ func TestIntegrationErrorSanitization(t *testing.T) {
 // ==================== Test 12: Input Continuity ====================
 // Client's partial input is preserved when incoming message arrives mid-typing.
 
+// TestIntegrationInputContinuity verifies the scenario described by its name.
 func TestIntegrationInputContinuity(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -907,6 +927,7 @@ func TestIntegrationInputContinuity(t *testing.T) {
 // ==================== Test 13: Reserved Name ====================
 // "Server" cannot be claimed by any client.
 
+// TestIntegrationReservedName verifies the scenario described by its name.
 func TestIntegrationReservedName(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -934,6 +955,7 @@ func TestIntegrationReservedName(t *testing.T) {
 // ==================== Test 14: IP Pre-Check ====================
 // Banned client gets rejection before banner, connection closed.
 
+// TestIntegrationIPPreCheck verifies the scenario described by its name.
 func TestIntegrationIPPreCheck(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -964,6 +986,7 @@ func TestIntegrationIPPreCheck(t *testing.T) {
 // ==================== Test 15: Operator Commands ====================
 // Operator performs all available commands from terminal.
 
+// TestIntegrationOperatorAllCommands verifies the scenario described by its name.
 func TestIntegrationOperatorAllCommands(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -1053,6 +1076,7 @@ func TestIntegrationOperatorAllCommands(t *testing.T) {
 // ==================== Test 16: Operator Inapplicable Commands ====================
 // /quit, /name, /whisper return appropriate errors from terminal.
 
+// TestIntegrationOperatorInapplicableCommands verifies the scenario described by its name.
 func TestIntegrationOperatorInapplicableCommands(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -1085,6 +1109,7 @@ func TestIntegrationOperatorInapplicableCommands(t *testing.T) {
 // ==================== Test 17: Full Admin Persistence Across Restart ====================
 // Admin status from admins.json is correctly restored after restart.
 
+// TestIntegrationAdminPersistence verifies the scenario described by its name.
 func TestIntegrationAdminPersistence(t *testing.T) {
 	tmpDir := t.TempDir()
 

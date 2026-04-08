@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// TestSendDeliversToConnection verifies the scenario described by its name.
 func TestSendDeliversToConnection(t *testing.T) {
 	server, client := net.Pipe()
 	defer server.Close()
@@ -25,6 +26,7 @@ func TestSendDeliversToConnection(t *testing.T) {
 	}
 }
 
+// TestWriteLoopExitsOnClose verifies the scenario described by its name.
 func TestWriteLoopExitsOnClose(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()
@@ -40,6 +42,7 @@ func TestWriteLoopExitsOnClose(t *testing.T) {
 	}
 }
 
+// TestReadLineStripsCarriageReturn verifies the scenario described by its name.
 func TestReadLineStripsCarriageReturn(t *testing.T) {
 	server, clientConn := net.Pipe()
 	defer server.Close()
@@ -60,6 +63,7 @@ func TestReadLineStripsCarriageReturn(t *testing.T) {
 	}
 }
 
+// TestReadLineExitsOnConnectionClose verifies the scenario described by its name.
 func TestReadLineExitsOnConnectionClose(t *testing.T) {
 	server, clientConn := net.Pipe()
 	c := NewClient(server)
@@ -76,6 +80,7 @@ func TestReadLineExitsOnConnectionClose(t *testing.T) {
 	}
 }
 
+// TestBufferedChannelDoesNotBlockBroadcaster verifies the scenario described by its name.
 func TestBufferedChannelDoesNotBlockBroadcaster(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()
@@ -100,6 +105,7 @@ func TestBufferedChannelDoesNotBlockBroadcaster(t *testing.T) {
 	}
 }
 
+// TestReadLineLongLineWithoutNewline verifies the scenario described by its name.
 func TestReadLineLongLineWithoutNewline(t *testing.T) {
 	server, clientConn := net.Pipe()
 	c := NewClient(server)
@@ -118,6 +124,7 @@ func TestReadLineLongLineWithoutNewline(t *testing.T) {
 	}
 }
 
+// TestSendAfterCloseDoesNotPanic verifies the scenario described by its name.
 func TestSendAfterCloseDoesNotPanic(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()
@@ -130,6 +137,7 @@ func TestSendAfterCloseDoesNotPanic(t *testing.T) {
 	}
 }
 
+// TestDoubleCloseDoesNotPanic verifies the scenario described by its name.
 func TestDoubleCloseDoesNotPanic(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()

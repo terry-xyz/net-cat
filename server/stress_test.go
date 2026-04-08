@@ -19,6 +19,7 @@ import (
 // ==================== Test 1: Rapid Messages ====================
 // 10 clients each sending 100 messages rapidly: all messages delivered in order, none dropped.
 
+// TestStressRapidMessages verifies the scenario described by its name.
 func TestStressRapidMessages(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -91,6 +92,7 @@ func TestStressRapidMessages(t *testing.T) {
 // 10 clients sending messages simultaneously: all messages appear exactly once
 // in the log file with correct timestamps.
 
+// TestStressConcurrentLogAccuracy verifies the scenario described by its name.
 func TestStressConcurrentLogAccuracy(t *testing.T) {
 	s, addr, tmpDir := startIntServer(t)
 	defer s.Shutdown()
@@ -173,6 +175,7 @@ func TestStressConcurrentLogAccuracy(t *testing.T) {
 // ==================== Test 3: Rapid Connect/Disconnect ====================
 // 50 clients connecting and disconnecting in rapid succession: no goroutine leaks.
 
+// TestStressRapidConnectDisconnect verifies the scenario described by its name.
 func TestStressRapidConnectDisconnect(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -219,6 +222,7 @@ func TestStressRapidConnectDisconnect(t *testing.T) {
 // 10 active clients + 20 queued clients: queue positions update correctly,
 // admission is FIFO.
 
+// TestStressQueuePositions verifies the scenario described by its name.
 func TestStressQueuePositions(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -301,6 +305,7 @@ func TestStressQueuePositions(t *testing.T) {
 // All 10 clients sending messages simultaneously: each receives all others' messages,
 // no cross-contamination.
 
+// TestStressBroadcastCompleteness verifies the scenario described by its name.
 func TestStressBroadcastCompleteness(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -369,6 +374,7 @@ func TestStressBroadcastCompleteness(t *testing.T) {
 // ==================== Test 6: Messages During Join/Leave ====================
 // Client sending at maximum rate while others join/leave: no deadlock, no panic.
 
+// TestStressMessageDuringJoinLeave verifies the scenario described by its name.
 func TestStressMessageDuringJoinLeave(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
@@ -440,6 +446,7 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 // Simulates midnight boundary by directly calling ClearHistory and verifying
 // messages aren't lost or duplicated during the transition.
 
+// TestStressMidnightRotationUnderLoad verifies the scenario described by its name.
 func TestStressMidnightRotationUnderLoad(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 )
 
+// main wires together logging, signal handling, operator input, and the TCP server process.
 func main() {
 	port := "8989"
 	if len(os.Args) > 2 {

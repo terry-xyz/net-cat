@@ -32,8 +32,7 @@ func (s *Server) AddBanIP(ip string) {
 	s.bannedIPs[host] = true
 }
 
-// IsIPBlocked checks if an IP is blocked by kick cooldown or ban.
-// Returns (blocked, rejection message). Cleans up expired kick cooldowns.
+// IsIPBlocked reports whether an IP is currently banned or still inside the kick cooldown window.
 func (s *Server) IsIPBlocked(ip string) (bool, string) {
 	host := extractHost(ip)
 	s.mu.Lock()
@@ -45,7 +44,7 @@ func (s *Server) IsIPBlocked(ip string) (bool, string) {
 		if time.Now().Before(expiry) {
 			return true, "You are temporarily blocked. Try again later.\n"
 		}
-		delete(s.kickedIPs, host) // expired
+		delete(s.kickedIPs, host) // Expired cooldowns must be cleared or clients stay blocked longer than intended.
 	}
 	return false, ""
 }

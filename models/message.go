@@ -45,38 +45,47 @@ func FormatTimestamp(t time.Time) string {
 		t.Hour(), t.Minute(), t.Second())
 }
 
+// FormatChat renders a standard chat line with timestamp and username.
 func FormatChat(t time.Time, username, content string) string {
 	return fmt.Sprintf("[%s][%s]:%s", FormatTimestamp(t), username, content)
 }
 
+// FormatPrompt renders the interactive prompt shown before the user types a message.
 func FormatPrompt(t time.Time, username string) string {
 	return fmt.Sprintf("[%s][%s]:", FormatTimestamp(t), username)
 }
 
+// FormatJoin renders the join notice shown to other clients in the room.
 func FormatJoin(username string) string {
 	return fmt.Sprintf("%s has joined our chat...", username)
 }
 
+// FormatLeave renders the leave notice shown to other clients in the room.
 func FormatLeave(username string) string {
 	return fmt.Sprintf("%s has left our chat...", username)
 }
 
+// FormatNameChange renders the notice broadcast after a user changes names.
 func FormatNameChange(oldName, newName string) string {
 	return fmt.Sprintf("%s changed their name to %s", oldName, newName)
 }
 
+// FormatAnnouncement renders a server-wide announcement banner.
 func FormatAnnouncement(message string) string {
 	return fmt.Sprintf("[ANNOUNCEMENT]: %s", message)
 }
 
+// FormatModeration renders kick, ban, mute, unmute, promote, and demote notices.
 func FormatModeration(target, action, admin string) string {
 	return fmt.Sprintf("%s was %s by %s", target, action, admin)
 }
 
+// FormatWhisperReceive renders the private-message line shown to the recipient.
 func FormatWhisperReceive(t time.Time, sender, message string) string {
 	return fmt.Sprintf("[%s][PM from %s]: %s", FormatTimestamp(t), sender, message)
 }
 
+// FormatWhisperSend renders the private-message echo shown back to the sender.
 func FormatWhisperSend(t time.Time, recipient, message string) string {
 	return fmt.Sprintf("[%s][PM to %s]: %s", FormatTimestamp(t), recipient, message)
 }

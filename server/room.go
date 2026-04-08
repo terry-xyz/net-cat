@@ -15,6 +15,7 @@ type Room struct {
 	queue   []*QueueEntry
 }
 
+// newRoom allocates a room with independent client, queue, and history containers.
 func newRoom(name string) *Room {
 	return &Room{
 		Name:    name,
@@ -34,8 +35,7 @@ func (s *Server) getOrCreateRoom(name string) *Room {
 	return r
 }
 
-// deleteRoomIfEmpty removes a room from the map if it has no clients and no queue.
-// Never deletes the DefaultRoom.
+// deleteRoomIfEmpty removes non-default rooms once both their active client list and queue are empty.
 func (s *Server) deleteRoomIfEmpty(name string) {
 	if name == s.DefaultRoom {
 		return
@@ -51,10 +51,9 @@ func (s *Server) deleteRoomIfEmpty(name string) {
 	}
 }
 
-// JoinRoom moves a client from their current room (if any) into the target room.
-// Must hold s.mu write lock.
+// JoinRoom moves a client into the target room while keeping the room-local indexes in sync.
 func (s *Server) JoinRoom(c *client.Client, roomName string) {
-	// Remove from old room if any
+	// Remove the old membership first so room-local counts stay correct during the move.
 	if c.Room != "" {
 		if oldRoom, ok := s.rooms[c.Room]; ok {
 			delete(oldRoom.clients, c.Username)
@@ -206,8 +205,7 @@ func (s *Server) checkRoomCapacity(roomName string) bool {
 
 // ---------- room-scoped queue management ----------
 
-// admitFromRoomQueue admits the first valid queued client in a specific room.
-// No-op during shutdown.
+// admitFromRoomQueue promotes the next waiting client when a room slot opens.
 func (s *Server) admitFromRoomQueue(roomName string) {
 	if s.IsShuttingDown() {
 		return
@@ -251,8 +249,7 @@ func (s *Server) removeFromRoomQueue(roomName string, entry *QueueEntry) {
 	}
 }
 
-// RemoveFromQueueByIP removes all queue entries across all rooms whose IP matches
-// and returns their clients.
+// RemoveFromAllRoomQueuesByIP drops queued clients whose host IP matches a moderation target across every room.
 func (s *Server) RemoveFromAllRoomQueuesByIP(ip string) []*client.Client {
 	host := extractHost(ip)
 	s.mu.Lock()
