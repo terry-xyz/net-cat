@@ -33,6 +33,7 @@ type Server struct {
 	shutdownDone    chan struct{}
 	ShutdownTimeout time.Duration // defaults to 5s; override in tests for faster execution
 	Logger          *logger.Logger
+	startTime       time.Time
 
 	// IP-based moderation (protected by mu)
 	kickedIPs map[string]time.Time // host IP -> cooldown expiry
@@ -69,6 +70,7 @@ func New(port string) *Server {
 		adminsFile:     "admins.json",
 		OperatorOutput: os.Stdout,
 	}
+	s.startTime = time.Now()
 	// Ensure the default room always exists
 	s.rooms[s.DefaultRoom] = newRoom(s.DefaultRoom)
 	return s

@@ -27,6 +27,7 @@ var Commands = map[string]CommandDef{
 	"whisper":  {Name: "whisper", MinPriv: PrivUser, Usage: "/whisper <name> <message>", Description: "Send a private message"},
 	"help":     {Name: "help", MinPriv: PrivUser, Usage: "/help", Description: "Show available commands"},
 	"rooms":    {Name: "rooms", MinPriv: PrivUser, Usage: "/rooms", Description: "List available rooms with client counts"},
+	"stats":    {Name: "stats", MinPriv: PrivUser, Usage: "/stats", Description: "Show server statistics"},
 	"switch":   {Name: "switch", MinPriv: PrivUser, Usage: "/switch <room>", Description: "Switch to another room"},
 	"create":   {Name: "create", MinPriv: PrivUser, Usage: "/create <room>", Description: "Create and switch to a new room"},
 	"kick":     {Name: "kick", MinPriv: PrivAdmin, Usage: "/kick <name>", Description: "Kick a user from chat"},
@@ -40,7 +41,7 @@ var Commands = map[string]CommandDef{
 
 // CommandOrder defines the display order used by /help.
 var CommandOrder = []string{
-	"list", "rooms", "switch", "create", "quit", "name", "whisper", "help",
+	"list", "rooms", "stats", "switch", "create", "quit", "name", "whisper", "help",
 	"kick", "ban", "mute", "unmute", "announce",
 	"promote", "demote",
 }
