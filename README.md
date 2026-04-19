@@ -151,6 +151,7 @@ Type these instead of a regular message. All commands start with `/`.
 | `/create <room>` | Create and switch to a new room |
 | `/whisper <name> <message>` | Sends a private message only that person can see (works across rooms) |
 | `/name <newname>` | Changes your display name |
+| `/stats` | Shows active users, active rooms and current room uptime |
 | `/help` | Shows all commands available to you |
 | `/quit` | Disconnects you from the chat |
 
