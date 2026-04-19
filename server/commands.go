@@ -65,6 +65,8 @@ func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
 		s.cmdList(c)
 	case "rooms":
 		s.cmdRooms(c)
+	case "stats":
+		s.cmdStats(c)
 	case "switch":
 		s.cmdSwitch(c, args)
 	case "create":
@@ -147,6 +149,22 @@ func (s *Server) cmdRooms(c *client.Client) {
 		}
 		c.Send(fmt.Sprintf("  %s (%d/%d users)%s\n", rn, count, MaxActiveClients, marker))
 	}
+	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
+}
+
+// ---------- /stats ----------
+
+// cmdStats shows server statistics like total clients and rooms.
+func (s *Server) cmdStats(c *client.Client) {
+	s.mu.RLock()
+	totalClients := len(s.clients)
+	numRooms := len(s.rooms)
+	s.mu.RUnlock()
+	uptime := time.Since(s.startTime).Truncate(time.Second)
+	c.Send("Server statistics:\n")
+	c.Send(fmt.Sprintf("  Total connected clients: %d\n", totalClients))
+	c.Send(fmt.Sprintf("  Number of rooms: %d\n", numRooms))
+	c.Send(fmt.Sprintf("  Server uptime: %s\n", uptime.String()))
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 }
 

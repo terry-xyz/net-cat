@@ -89,8 +89,8 @@ func TestUserCommandCount(t *testing.T) {
 			count++
 		}
 	}
-	if count != 8 {
-		t.Errorf("user-level commands: got %d, want 8", count)
+	if count != 9 {
+		t.Errorf("user-level commands: got %d, want 9", count)
 	}
 }
 
