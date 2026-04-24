@@ -7,6 +7,7 @@ package server
 import (
 	"fmt"
 	"net"
+	"net-cat/models"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,39 @@ import (
 	"testing"
 	"time"
 )
+
+func countChatMessages(history []models.Message) int {
+	count := 0
+	for _, h := range history {
+		if h.Type == models.MsgChat {
+			count++
+		}
+	}
+	return count
+}
+
+func waitForChatHistoryCount(t *testing.T, s *Server, expected int, timeout time.Duration) {
+	t.Helper()
+	waitForCondition(t, timeout, fmt.Sprintf("%d chat messages in history", expected), func() bool {
+		return countChatMessages(s.GetHistory()) == expected
+	})
+}
+
+func drainConnections(conns []net.Conn, timeout time.Duration) []string {
+	results := make([]string, len(conns))
+	var wg sync.WaitGroup
+
+	for i := range conns {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx] = stripAnsi(drainUntilQuiet(conns[idx], timeout, 25*time.Millisecond))
+		}(i)
+	}
+
+	wg.Wait()
+	return results
+}
 
 // ==================== Test 1: Rapid Messages ====================
 // 10 clients each sending 100 messages rapidly: all messages delivered in order, none dropped.
@@ -34,13 +68,11 @@ func TestStressRapidMessages(t *testing.T) {
 		names[i] = fmt.Sprintf("user%d", i)
 		conns[i] = tcpOnboard(t, addr, names[i])
 		defer conns[i].Close()
-		time.Sleep(30 * time.Millisecond) // let join notifications propagate
 	}
-	// Drain all join notifications
-	time.Sleep(300 * time.Millisecond)
-	for _, conn := range conns {
-		drainFor(conn, 200*time.Millisecond)
-	}
+	waitForCondition(t, time.Second, "all rapid-message clients to join", func() bool {
+		return s.GetRoomClientCount(s.DefaultRoom) == numClients
+	})
+	drainConnections(conns, 150*time.Millisecond)
 
 	// Each client sends 100 messages as fast as possible
 	var wg sync.WaitGroup
@@ -58,8 +90,8 @@ func TestStressRapidMessages(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Allow time for all messages to propagate through the server
-	time.Sleep(1500 * time.Millisecond)
+	expectedTotal := numClients * msgsPerClient
+	waitForChatHistoryCount(t, s, expectedTotal, 3*time.Second)
 
 	// Check log file for all messages
 	history := s.GetHistory()
@@ -72,7 +104,6 @@ func TestStressRapidMessages(t *testing.T) {
 		}
 	}
 
-	expectedTotal := numClients * msgsPerClient
 	if chatCount != expectedTotal {
 		t.Errorf("expected %d chat messages in history, got %d", expectedTotal, chatCount)
 	}
@@ -106,9 +137,10 @@ func TestStressConcurrentLogAccuracy(t *testing.T) {
 		names[i] = fmt.Sprintf("logger%d", i)
 		conns[i] = tcpOnboard(t, addr, names[i])
 		defer conns[i].Close()
-		time.Sleep(30 * time.Millisecond)
 	}
-	time.Sleep(300 * time.Millisecond)
+	waitForCondition(t, time.Second, "all concurrent-log clients to join", func() bool {
+		return s.GetRoomClientCount(s.DefaultRoom) == numClients
+	})
 
 	// All clients send simultaneously
 	startBarrier := make(chan struct{})
@@ -130,8 +162,7 @@ func TestStressConcurrentLogAccuracy(t *testing.T) {
 	close(startBarrier) // release all goroutines simultaneously
 	wg.Wait()
 
-	// Wait for all messages to be logged
-	time.Sleep(1 * time.Second)
+	waitForChatHistoryCount(t, s, numClients*msgsPerClient, 3*time.Second)
 
 	// Read the log file and verify all messages
 	logsDir := filepath.Join(tmpDir, "logs")
@@ -180,8 +211,6 @@ func TestStressRapidConnectDisconnect(t *testing.T) {
 	s, addr, _ := startIntServer(t)
 	defer s.Shutdown()
 
-	// Wait for server goroutines to stabilize
-	time.Sleep(500 * time.Millisecond)
 	baseline := runtime.NumGoroutine()
 
 	const cycles = 50
@@ -202,16 +231,16 @@ func TestStressRapidConnectDisconnect(t *testing.T) {
 			// Immediately close (simulate rapid disconnect)
 			conn.Close()
 		}(i)
-		// Small stagger to avoid SYN flood behavior
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	wg.Wait()
 
-	// Allow goroutines to clean up
-	time.Sleep(2 * time.Second)
+	var final int
+	waitForCondition(t, 3*time.Second, "rapid disconnect goroutine cleanup", func() bool {
+		final = runtime.NumGoroutine()
+		return final-baseline <= 10
+	})
 
-	final := runtime.NumGoroutine()
-	// Allow a small margin for background goroutines (timer, GC, etc.)
 	leaked := final - baseline
 	if leaked > 10 {
 		t.Errorf("potential goroutine leak: baseline=%d, final=%d, leaked=%d", baseline, final, leaked)
@@ -233,9 +262,10 @@ func TestStressQueuePositions(t *testing.T) {
 		name := fmt.Sprintf("active%d", i)
 		activeConns[i] = tcpOnboard(t, addr, name)
 		defer activeConns[i].Close()
-		time.Sleep(30 * time.Millisecond)
 	}
-	time.Sleep(200 * time.Millisecond)
+	waitForCondition(t, time.Second, "active queue test clients to join", func() bool {
+		return s.GetRoomClientCount(s.DefaultRoom) == 10
+	})
 
 	// Connect 20 queued clients (new flow: banner → name → room → queue)
 	queuedConns := make([]net.Conn, 20)
@@ -261,7 +291,9 @@ func TestStressQueuePositions(t *testing.T) {
 		}
 		fmt.Fprintf(conn, "yes\n")
 	}
-	time.Sleep(500 * time.Millisecond)
+	waitForCondition(t, time.Second, "queued clients to be registered", func() bool {
+		return s.GetQueueLength() == 20
+	})
 
 	// Verify queue length
 	qLen := s.GetQueueLength()
@@ -273,7 +305,6 @@ func TestStressQueuePositions(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		activeConns[i].Close()
 		activeConns[i] = nil
-		time.Sleep(300 * time.Millisecond) // let admission + position updates propagate
 	}
 
 	// First 3 queued clients should be admitted (already named, get prompt directly)
@@ -285,8 +316,9 @@ func TestStressQueuePositions(t *testing.T) {
 		}
 	}
 
-	// Remaining 17 queued clients should have updated positions
-	time.Sleep(500 * time.Millisecond)
+	waitForCondition(t, 2*time.Second, "queue admission after active disconnects", func() bool {
+		return s.GetRoomClientCount(s.DefaultRoom) == 10 && s.GetQueueLength() == 17
+	})
 
 	// Verify room still has 10 active clients (capacity is per-room)
 	roomCount := s.GetRoomClientCount(s.DefaultRoom)
@@ -318,13 +350,11 @@ func TestStressBroadcastCompleteness(t *testing.T) {
 		names[i] = fmt.Sprintf("bc%d", i)
 		conns[i] = tcpOnboard(t, addr, names[i])
 		defer conns[i].Close()
-		time.Sleep(30 * time.Millisecond)
 	}
-	// Drain join notifications
-	time.Sleep(500 * time.Millisecond)
-	for _, conn := range conns {
-		drainFor(conn, 200*time.Millisecond)
-	}
+	waitForCondition(t, time.Second, "broadcast clients to join", func() bool {
+		return s.GetRoomClientCount(s.DefaultRoom) == numClients
+	})
+	drainConnections(conns, 150*time.Millisecond)
 
 	// All clients send one unique message simultaneously
 	startBarrier := make(chan struct{})
@@ -341,21 +371,10 @@ func TestStressBroadcastCompleteness(t *testing.T) {
 	close(startBarrier)
 	wg.Wait()
 
-	// Wait for messages to propagate
-	time.Sleep(1 * time.Second)
+	waitForChatHistoryCount(t, s, numClients, 2*time.Second)
 
 	// Each client should see all OTHER clients' messages (9 messages each).
-	// Drain all connections in parallel to avoid sequential 1s × N timeouts.
-	results := make([]string, numClients)
-	var drainWg sync.WaitGroup
-	for i := 0; i < numClients; i++ {
-		drainWg.Add(1)
-		go func(idx int) {
-			defer drainWg.Done()
-			results[idx] = stripAnsi(drainFor(conns[idx], 500*time.Millisecond))
-		}(i)
-	}
-	drainWg.Wait()
+	results := drainConnections(conns, 250*time.Millisecond)
 
 	for i := 0; i < numClients; i++ {
 		for j := 0; j < numClients; j++ {
@@ -382,7 +401,6 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 	// Connect the sender first
 	sender := tcpOnboard(t, addr, "sender")
 	defer sender.Close()
-	time.Sleep(100 * time.Millisecond)
 
 	// Start sender goroutine that sends messages continuously
 	senderDone := make(chan struct{})
@@ -391,7 +409,7 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 		for i := 0; i < 100; i++ {
 			msg := fmt.Sprintf("rapid_%d", i)
 			fmt.Fprintf(sender, "%s\n", msg)
-			time.Sleep(5 * time.Millisecond)
+			time.Sleep(2 * time.Millisecond)
 		}
 	}()
 
@@ -404,18 +422,29 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 			name := fmt.Sprintf("joiner%d", idx)
 			conn, err := net.Dial("tcp", addr)
 			if err != nil {
+				t.Errorf("joiner %d dial failed: %v", idx, err)
 				return
 			}
-			// Read banner
-			readUntil(conn, "[ENTER YOUR NAME]:", 3*time.Second)
+			defer conn.Close()
+
+			if _, err := readUntil(conn, "[ENTER YOUR NAME]:", 3*time.Second); err != nil {
+				t.Errorf("joiner %d banner read failed: %v", idx, err)
+				return
+			}
 			fmt.Fprintf(conn, "%s\n", name)
-			// Wait for prompt (onboarded)
-			readUntil(conn, "]["+name+"]:", 3*time.Second)
+			if _, err := readUntil(conn, "[ENTER ROOM NAME]", 3*time.Second); err != nil {
+				t.Errorf("joiner %d room prompt failed: %v", idx, err)
+				return
+			}
+			fmt.Fprintf(conn, "\n")
+			if _, err := readUntil(conn, "]["+name+"]:", 3*time.Second); err != nil {
+				t.Errorf("joiner %d onboarding failed: %v", idx, err)
+				return
+			}
 			// Stay for a bit, then leave
-			time.Sleep(time.Duration(50+idx*10) * time.Millisecond)
-			conn.Close()
+			time.Sleep(time.Duration(15+idx*5) * time.Millisecond)
 		}(i)
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 	}
 
 	// Wait for sender to finish
@@ -424,8 +453,9 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 	// Wait for all joiners/leavers to finish
 	wg.Wait()
 
-	// Allow cleanup
-	time.Sleep(500 * time.Millisecond)
+	waitForCondition(t, 2*time.Second, "joiner cleanup after stress", func() bool {
+		return s.GetClientCount() == 1
+	})
 
 	// The test passes if we reach here without deadlock or panic.
 	// Verify sender is still connected and responsive
@@ -446,6 +476,58 @@ func TestStressMessageDuringJoinLeave(t *testing.T) {
 // Simulates midnight boundary by directly calling ClearHistory and verifying
 // messages aren't lost or duplicated during the transition.
 
+func connectMidnightClients(t *testing.T, addr string, numClients int) ([]net.Conn, []string) {
+	t.Helper()
+
+	conns := make([]net.Conn, numClients)
+	names := make([]string, numClients)
+	for i := 0; i < numClients; i++ {
+		names[i] = fmt.Sprintf("midnight%d", i)
+		conns[i] = tcpOnboard(t, addr, names[i])
+	}
+	return conns, names
+}
+
+func sendMidnightMessages(conns []net.Conn, prefix string, msgCount int) {
+	for i := range conns {
+		sendClientMessages(conns[i], prefix, i, msgCount)
+	}
+}
+
+func sendClientMessages(conn net.Conn, prefix string, clientIndex, msgCount int) {
+	for j := 0; j < msgCount; j++ {
+		msg := fmt.Sprintf("%s_%d_%d", prefix, clientIndex, j)
+		fmt.Fprintf(conn, "%s\n", msg)
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+func countHistoryMessagesWithPrefix(history []models.Message, prefix string) int {
+	count := 0
+	for _, h := range history {
+		if h.Type == models.MsgChat && strings.HasPrefix(h.Content, prefix) {
+			count++
+		}
+	}
+	return count
+}
+
+func verifyNoDuplicateHistoryMessages(t *testing.T, history []models.Message) {
+	t.Helper()
+
+	seen := make(map[string]int)
+	for _, h := range history {
+		if h.Type == models.MsgChat {
+			seen[h.Content]++
+		}
+	}
+	for msg, count := range seen {
+		if count > 1 {
+			t.Errorf("duplicate message in history: %q appeared %d times", msg, count)
+		}
+	}
+}
+
 // TestStressMidnightRotationUnderLoad verifies the scenario described by its name.
 func TestStressMidnightRotationUnderLoad(t *testing.T) {
 	s, addr, _ := startIntServer(t)
@@ -455,34 +537,23 @@ func TestStressMidnightRotationUnderLoad(t *testing.T) {
 	const msgsBeforeMidnight = 10
 	const msgsAfterMidnight = 10
 
-	conns := make([]net.Conn, numClients)
-	names := make([]string, numClients)
-	for i := 0; i < numClients; i++ {
-		names[i] = fmt.Sprintf("midnight%d", i)
-		conns[i] = tcpOnboard(t, addr, names[i])
-		defer conns[i].Close()
-		time.Sleep(30 * time.Millisecond)
+	conns, _ := connectMidnightClients(t, addr, numClients)
+	for _, conn := range conns {
+		defer conn.Close()
 	}
-	time.Sleep(300 * time.Millisecond)
+	waitForCondition(t, time.Second, "midnight clients to join", func() bool {
+		return s.GetRoomClientCount(s.DefaultRoom) == numClients
+	})
 
 	// Phase 1: Send messages before "midnight"
-	for i := 0; i < numClients; i++ {
-		for j := 0; j < msgsBeforeMidnight; j++ {
-			msg := fmt.Sprintf("before_%d_%d", i, j)
-			fmt.Fprintf(conns[i], "%s\n", msg)
-			time.Sleep(2 * time.Millisecond)
-		}
-	}
-	time.Sleep(500 * time.Millisecond)
+	sendMidnightMessages(conns, "before", msgsBeforeMidnight)
+	waitForCondition(t, 2*time.Second, "pre-midnight history population", func() bool {
+		return countHistoryMessagesWithPrefix(s.GetHistory(), "before_") == numClients*msgsBeforeMidnight
+	})
 
 	// Verify pre-midnight messages are in history
 	histBefore := s.GetHistory()
-	preMidnightChat := 0
-	for _, h := range histBefore {
-		if h.Type == 0 && strings.HasPrefix(h.Content, "before_") {
-			preMidnightChat++
-		}
-	}
+	preMidnightChat := countHistoryMessagesWithPrefix(histBefore, "before_")
 	if preMidnightChat != numClients*msgsBeforeMidnight {
 		t.Errorf("expected %d pre-midnight chat messages, got %d", numClients*msgsBeforeMidnight, preMidnightChat)
 	}
@@ -491,36 +562,24 @@ func TestStressMidnightRotationUnderLoad(t *testing.T) {
 	sendingDone := make(chan struct{})
 	go func() {
 		defer close(sendingDone)
-		for i := 0; i < numClients; i++ {
-			for j := 0; j < msgsAfterMidnight; j++ {
-				msg := fmt.Sprintf("after_%d_%d", i, j)
-				fmt.Fprintf(conns[i], "%s\n", msg)
-				time.Sleep(2 * time.Millisecond)
-			}
-		}
+		sendMidnightMessages(conns, "after", msgsAfterMidnight)
 	}()
 
 	// Clear history (simulating midnight boundary)
-	time.Sleep(50 * time.Millisecond) // let some "after" messages start
+	time.Sleep(10 * time.Millisecond) // let some "after" messages start
 	s.ClearHistory()
 
 	<-sendingDone
-	time.Sleep(500 * time.Millisecond)
+	waitForCondition(t, 2*time.Second, "post-midnight history population", func() bool {
+		history := s.GetHistory()
+		return countHistoryMessagesWithPrefix(history, "before_") == 0 &&
+			countHistoryMessagesWithPrefix(history, "after_") > 0
+	})
 
 	// Verify: history should only contain post-midnight messages
 	histAfter := s.GetHistory()
-	postMidnightChat := 0
-	preFound := 0
-	for _, h := range histAfter {
-		if h.Type == 0 {
-			if strings.HasPrefix(h.Content, "after_") {
-				postMidnightChat++
-			}
-			if strings.HasPrefix(h.Content, "before_") {
-				preFound++
-			}
-		}
-	}
+	postMidnightChat := countHistoryMessagesWithPrefix(histAfter, "after_")
+	preFound := countHistoryMessagesWithPrefix(histAfter, "before_")
 
 	if preFound > 0 {
 		t.Errorf("pre-midnight messages should be cleared from history, found %d", preFound)
@@ -532,24 +591,15 @@ func TestStressMidnightRotationUnderLoad(t *testing.T) {
 		t.Error("expected at least some post-midnight messages in history")
 	}
 
-	// Verify no duplicates in history
-	seen := make(map[string]int)
-	for _, h := range histAfter {
-		if h.Type == 0 {
-			seen[h.Content]++
-		}
-	}
-	for msg, count := range seen {
-		if count > 1 {
-			t.Errorf("duplicate message in history: %q appeared %d times", msg, count)
-		}
-	}
+	verifyNoDuplicateHistoryMessages(t, histAfter)
 
 	// A new client joining should see only post-midnight history
 	newConn := tcpDial(t, addr)
 	defer newConn.Close()
 	readUntil(newConn, "[ENTER YOUR NAME]:", 3*time.Second)
 	fmt.Fprintf(newConn, "newjoin\n")
+	readUntil(newConn, "[ENTER ROOM NAME]", 3*time.Second)
+	fmt.Fprintf(newConn, "\n")
 	histText, _ := readUntil(newConn, "][newjoin]:", 5*time.Second)
 	stripped := stripAnsi(histText)
 	if strings.Contains(stripped, "before_") {

@@ -3620,7 +3620,9 @@ func TestAdminReconnectRestoresPrivileges(t *testing.T) {
 	s.OperatorDispatch("/promote alice")
 	readUntil(c1, "promoted", time.Second)
 	c1.Close()
-	time.Sleep(300 * time.Millisecond)
+	waitForCondition(t, time.Second, "alice disconnect cleanup", func() bool {
+		return s.GetClient("alice") == nil
+	})
 
 	// Reconnect
 	c2 := connectPipe(s)
@@ -3960,7 +3962,9 @@ func TestAdminNameChangeLifecycle(t *testing.T) {
 
 	// Disconnect
 	c1.Close()
-	time.Sleep(300 * time.Millisecond)
+	waitForCondition(t, time.Second, "alice2 disconnect cleanup", func() bool {
+		return s.GetClient("alice2") == nil
+	})
 
 	// Reconnect as alice2 — should get admin restored
 	c2 := connectPipe(s)
@@ -4000,7 +4004,9 @@ func TestDemotionRemovesFromAdminsJson(t *testing.T) {
 
 	// Disconnect and reconnect — should NOT get admin
 	conn.Close()
-	time.Sleep(300 * time.Millisecond)
+	waitForCondition(t, time.Second, "demoted alice disconnect cleanup", func() bool {
+		return s.GetClient("alice") == nil
+	})
 
 	c2 := connectPipe(s)
 	defer c2.Close()
@@ -6392,20 +6398,7 @@ func sendCharByChar(conn net.Conn, line string) {
 // helper: read all available data from a connection with a short timeout.
 // readAvailable provides the behavior described by its name.
 func readAvailable(conn net.Conn, timeout time.Duration) string {
-	conn.SetReadDeadline(time.Now().Add(timeout))
-	var buf strings.Builder
-	tmp := make([]byte, 4096)
-	for {
-		n, err := conn.Read(tmp)
-		if n > 0 {
-			buf.Write(tmp[:n])
-		}
-		if err != nil {
-			break
-		}
-	}
-	conn.SetReadDeadline(time.Time{})
-	return buf.String()
+	return drainUntilQuiet(conn, timeout, 25*time.Millisecond)
 }
 
 // TestInputContinuityPartialInputPreserved verifies that when client A is
@@ -6840,7 +6833,9 @@ func TestEdgeCaseRapidConnectDisconnectWithOnboardingNoLeak(t *testing.T) {
 	warmConn := connectPipe(s)
 	onboard(warmConn, "warmup")
 	warmConn.Close()
-	time.Sleep(300 * time.Millisecond)
+	waitForCondition(t, time.Second, "warmup disconnect cleanup", func() bool {
+		return s.GetClientCount() == 0
+	})
 
 	runtime.GC()
 	baseline := runtime.NumGoroutine()
@@ -6849,13 +6844,14 @@ func TestEdgeCaseRapidConnectDisconnectWithOnboardingNoLeak(t *testing.T) {
 		c := connectPipe(s)
 		onboard(c, fmt.Sprintf("user%d", i))
 		c.Close()
-		// Brief sleep to let the handler notice the close
-		time.Sleep(10 * time.Millisecond)
 	}
 
-	time.Sleep(500 * time.Millisecond)
-	runtime.GC()
-	final := runtime.NumGoroutine()
+	var final int
+	waitForCondition(t, 2*time.Second, "post-onboarding disconnect cleanup", func() bool {
+		runtime.GC()
+		final = runtime.NumGoroutine()
+		return final <= baseline+5
+	})
 
 	if final > baseline+5 {
 		t.Errorf("goroutine leak: baseline=%d, after 50 onboard/disconnect cycles=%d", baseline, final)
@@ -7102,8 +7098,9 @@ func TestEdgeCaseAdminActionOnDisconnectingClient(t *testing.T) {
 			target.Close()
 		}()
 		wg.Wait()
-
-		time.Sleep(50 * time.Millisecond)
+		waitForCondition(t, time.Second, name+" disconnect cleanup", func() bool {
+			return s.GetClient(name) == nil
+		})
 
 		// Drain admin output
 		readAvailable(admin, 100*time.Millisecond)
@@ -7145,17 +7142,21 @@ func TestEdgeCaseKickAndQueueAdmissionSimultaneous(t *testing.T) {
 	fmt.Fprintf(queued, "\n") // default room
 	readUntil(queued, "Would you like to wait?", 2*time.Second)
 	fmt.Fprintf(queued, "yes\n")
-	time.Sleep(200 * time.Millisecond)
+	waitForCondition(t, time.Second, "queued client registration after kick setup", func() bool {
+		return s.GetQueueLength() == 1
+	})
 
 	// Admin kicks user9, which should open a slot for the queued client
 	fmt.Fprintf(actives[0], "/kick user9\n")
-	time.Sleep(500 * time.Millisecond)
 
 	// Queued client should be admitted (already named, gets prompt directly)
 	_, err := readUntil(queued, "][queued1]:", 2*time.Second)
 	if err != nil {
 		t.Error("queued client should be admitted after kick opens a slot")
 	}
+	waitForCondition(t, time.Second, "user9 removal after kick", func() bool {
+		return s.GetClient("user9") == nil
+	})
 
 	// Verify kicked client is gone
 	if s.GetClient("user9") != nil {
@@ -7569,6 +7570,8 @@ func TestShutdownNotifiesMultipleQueuedClients(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		queued[i] = connectPipe(s)
 		defer queued[i].Close()
+		enterName(queued[i], fmt.Sprintf("queued%d", i))
+		fmt.Fprintf(queued[i], "\n") // default room
 		readUntil(queued[i], "yes/no", 2*time.Second)
 		fmt.Fprintf(queued[i], "yes\n")
 		time.Sleep(50 * time.Millisecond)
@@ -7578,14 +7581,24 @@ func TestShutdownNotifiesMultipleQueuedClients(t *testing.T) {
 	go s.Shutdown()
 
 	// Every queued client should receive the shutdown notification.
+	texts := make([]string, len(queued))
+	errs := make([]error, len(queued))
+	var wg sync.WaitGroup
 	for i, q := range queued {
-		text, err := readUntil(q, "shutting down", 3*time.Second)
-		if err != nil {
-			t.Errorf("queued client #%d should receive shutdown message: %v (got: %q)", i+1, err, text)
+		wg.Add(1)
+		go func(idx int, conn net.Conn) {
+			defer wg.Done()
+			texts[idx], errs[idx] = readUntil(conn, "shutting down", 2*time.Second)
+		}(i, q)
+	}
+	wg.Wait()
+	for i := range queued {
+		if errs[i] != nil {
+			t.Errorf("queued client #%d should receive shutdown message: %v (got: %q)", i+1, errs[i], texts[i])
 			continue
 		}
-		if !strings.Contains(text, "Server is shutting down. Goodbye!") {
-			t.Errorf("queued client #%d: expected shutdown message, got: %q", i+1, text)
+		if !strings.Contains(texts[i], "Server is shutting down. Goodbye!") {
+			t.Errorf("queued client #%d: expected shutdown message, got: %q", i+1, texts[i])
 		}
 	}
 }

@@ -190,6 +190,59 @@ func sendLine(conn net.Conn, name, line string) (string, error) {
 	return readUntil(conn, "]["+name+"]:", 3*time.Second)
 }
 
+// waitForCondition polls until condition returns true or the timeout expires.
+func waitForCondition(t *testing.T, timeout time.Duration, description string, condition func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timeout waiting for %s after %v", description, timeout)
+}
+
+// drainUntilQuiet reads until the connection goes quiet after data starts arriving.
+func drainUntilQuiet(conn net.Conn, timeout, quiet time.Duration) string {
+	overallDeadline := time.Now().Add(timeout)
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	sawData := false
+
+	for {
+		readDeadline := overallDeadline
+		if sawData {
+			quietDeadline := time.Now().Add(quiet)
+			if quietDeadline.Before(readDeadline) {
+				readDeadline = quietDeadline
+			}
+		}
+
+		conn.SetReadDeadline(readDeadline)
+		n, err := conn.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+			sawData = true
+			continue
+		}
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				if sawData || time.Now().After(overallDeadline) {
+					break
+				}
+				continue
+			}
+			break
+		}
+	}
+
+	conn.SetReadDeadline(time.Time{})
+	return buf.String()
+}
+
 // drainFor reads all available data from conn during the given duration.
 // Useful for checking that certain content does NOT appear.
 // drainFor keeps reading from a connection until the timeout expires so tests can inspect all pending output.
