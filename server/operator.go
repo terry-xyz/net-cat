@@ -10,6 +10,49 @@ import (
 	"time"
 )
 
+type operatorCommandHandler func(*Server, string)
+
+var operatorInapplicableCommands = map[string]string{
+	"quit":    "The /quit command is not applicable to the server operator.\n",
+	"name":    "The /name command is not applicable to the server operator.\n",
+	"whisper": "The /whisper command is not applicable to the server operator.\n",
+	"switch":  "The /switch command is not applicable to the server operator.\n",
+	"create":  "The /create command is not applicable to the server operator.\n",
+}
+
+var operatorCommandHandlers = map[string]operatorCommandHandler{
+	"list": func(s *Server, _ string) {
+		s.operatorCmdList()
+	},
+	"help": func(s *Server, _ string) {
+		s.operatorCmdHelp()
+	},
+	"rooms": func(s *Server, _ string) {
+		s.operatorCmdRooms()
+	},
+	"kick": func(s *Server, args string) {
+		s.operatorCmdKick(args)
+	},
+	"ban": func(s *Server, args string) {
+		s.operatorCmdBan(args)
+	},
+	"mute": func(s *Server, args string) {
+		s.operatorCmdMute(args)
+	},
+	"unmute": func(s *Server, args string) {
+		s.operatorCmdUnmute(args)
+	},
+	"announce": func(s *Server, args string) {
+		s.operatorCmdAnnounce(args)
+	},
+	"promote": func(s *Server, args string) {
+		s.operatorCmdPromote(args)
+	},
+	"demote": func(s *Server, args string) {
+		s.operatorCmdDemote(args)
+	},
+}
+
 // ---------- operator terminal ----------
 
 // StartOperator reads terminal input and feeds it through the operator command dispatcher until shutdown.
@@ -44,42 +87,19 @@ func (s *Server) OperatorDispatch(input string) {
 		return
 	}
 
-	// Operator has full privilege, but some commands are inapplicable
-	switch cmdName {
-	case "quit":
-		s.operatorSend("The /quit command is not applicable to the server operator.\n")
-	case "name":
-		s.operatorSend("The /name command is not applicable to the server operator.\n")
-	case "whisper":
-		s.operatorSend("The /whisper command is not applicable to the server operator.\n")
-	case "switch":
-		s.operatorSend("The /switch command is not applicable to the server operator.\n")
-	case "create":
-		s.operatorSend("The /create command is not applicable to the server operator.\n")
-	case "list":
-		s.operatorCmdList()
-	case "help":
-		s.operatorCmdHelp()
-	case "rooms":
-		s.operatorCmdRooms()
-	case "kick":
-		s.operatorCmdKick(args)
-	case "ban":
-		s.operatorCmdBan(args)
-	case "mute":
-		s.operatorCmdMute(args)
-	case "unmute":
-		s.operatorCmdUnmute(args)
-	case "announce":
-		s.operatorCmdAnnounce(args)
-	case "promote":
-		s.operatorCmdPromote(args)
-	case "demote":
-		s.operatorCmdDemote(args)
-	default:
-		_ = def
-		s.operatorSend("Unknown command: /" + cmdName + ".\n")
+	if message, exists := operatorInapplicableCommands[cmdName]; exists {
+		s.operatorSend(message)
+		return
 	}
+
+	handler, exists := operatorCommandHandlers[cmdName]
+	if !exists {
+		s.operatorSend("Unknown command: /" + cmdName + ".\n")
+		return
+	}
+
+	_ = def
+	handler(s, args)
 }
 
 // operatorSend writes a message to the operator's output (typically stdout).

@@ -38,137 +38,161 @@ const RoomPrompt = "[ENTER ROOM NAME] (Enter for 'general'):"
 
 // handleConnection manages one TCP connection through onboarding, messaging, and cleanup.
 func (s *Server) handleConnection(conn net.Conn) {
-	// Enable aggressive TCP keepalive for faster dead peer detection on real connections
-	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		tcpConn.SetKeepAlive(true)
-		tcpConn.SetKeepAlivePeriod(5 * time.Second)
-	}
+	enableTCPKeepAlive(conn)
 
 	c := client.NewClient(conn)
 	s.TrackClient(c)
 	defer s.UntrackClient(c)
 
-	// Check IP against kick/ban lists BEFORE welcome banner or queue prompt.
-	// Write directly to conn (bypassing the async writeLoop) to guarantee delivery
-	// before we close the connection.
+	if s.rejectConnection(c) {
+		return
+	}
+	if !s.onboardClient(c) {
+		return
+	}
+
+	defer s.cleanupConnection(c)
+
+	s.prepareClientSession(c)
+	s.serveClientSession(c)
+}
+
+func enableTCPKeepAlive(conn net.Conn) {
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		tcpConn.SetKeepAlive(true)
+		tcpConn.SetKeepAlivePeriod(5 * time.Second)
+	}
+}
+
+func (s *Server) rejectConnection(c *client.Client) bool {
 	if blocked, reason := s.IsIPBlocked(c.IP); blocked {
-		conn.Write([]byte(reason))
+		c.Conn.Write([]byte(reason))
 		c.Close()
-		return
+		return true
 	}
-
-	// Reject connections that arrive during shutdown
 	if s.IsShuttingDown() {
-		conn.Write([]byte("Server is shutting down. Goodbye!\n"))
+		c.Conn.Write([]byte("Server is shutting down. Goodbye!\n"))
 		c.Close()
-		return
+		return true
 	}
+	return false
+}
 
-	// Send welcome banner + name prompt
+func (s *Server) onboardClient(c *client.Client) bool {
 	c.Send(WelcomeBanner + NamePrompt)
+	if !s.registerClientName(c) {
+		return false
+	}
+	s.restoreKnownAdmin(c)
+	return s.selectRoomAndJoin(c)
+}
 
-	// --- Name validation loop (infinite retries) ---
-	registered := false
+func (s *Server) registerClientName(c *client.Client) bool {
 	for {
 		name, err := c.ReadLine()
 		if err != nil {
-			if err != io.EOF {
-				s.Logger.Log(models.Message{
-					Timestamp: time.Now(),
-					Type:      models.MsgServerEvent,
-					Content:   fmt.Sprintf("Connection error during onboarding from %s", c.IP),
-				})
-			}
+			s.logOnboardingError(c, err)
 			c.Close()
-			return
+			return false
 		}
-
-		if valErr := validateName(name); valErr != nil {
-			c.Send(valErr.Error() + "\n" + NamePrompt)
-			continue
-		}
-		if s.IsReservedName(name) {
-			c.Send("Name '" + name + "' is reserved.\n" + NamePrompt)
+		if validationMessage, ok := s.validateRequestedName(name); ok {
+			c.Send(validationMessage + "\n" + NamePrompt)
 			continue
 		}
 		if err := s.RegisterClient(c, name); err != nil {
 			c.Send("Name is already taken.\n" + NamePrompt)
 			continue
 		}
-		registered = true
-		break
+		return true
 	}
-	if !registered {
-		c.Close()
+}
+
+func (s *Server) logOnboardingError(c *client.Client, err error) {
+	if err == io.EOF {
 		return
 	}
+	s.Logger.Log(models.Message{
+		Timestamp: time.Now(),
+		Type:      models.MsgServerEvent,
+		Content:   fmt.Sprintf("Connection error during onboarding from %s", c.IP),
+	})
+}
 
-	// Auto-restore admin privileges for known admins
-	if s.IsKnownAdmin(c.Username) {
-		c.SetAdmin(true)
-		c.Send("Welcome back, admin!\n")
+func (s *Server) validateRequestedName(name string) (string, bool) {
+	if valErr := validateName(name); valErr != nil {
+		return valErr.Error(), true
 	}
+	if s.IsReservedName(name) {
+		return "Name '" + name + "' is reserved.", true
+	}
+	return "", false
+}
 
-	// --- Room selection ---
+func (s *Server) restoreKnownAdmin(c *client.Client) {
+	if !s.IsKnownAdmin(c.Username) {
+		return
+	}
+	c.SetAdmin(true)
+	c.Send("Welcome back, admin!\n")
+}
+
+func (s *Server) selectRoomAndJoin(c *client.Client) bool {
 	roomName := s.readRoomChoice(c)
 	if roomName == "" {
-		// Client disconnected during room selection
 		s.RemoveClient(c.Username)
 		c.Close()
-		return
+		return false
 	}
-
-	// Check room capacity and offer queue if full
 	if !s.checkOrQueueRoom(c, roomName) {
 		s.RemoveClient(c.Username)
 		c.Close()
-		return
+		return false
 	}
 
-	// Join the selected room
 	s.mu.Lock()
 	s.JoinRoom(c, roomName)
 	s.mu.Unlock()
+	return true
+}
 
-	// Cleanup runs on any exit from this point (disconnect, /quit, kick, etc.)
-	defer func() {
-		username := c.Username
-		currentRoom := c.Room
-		switch c.GetDisconnectReason() {
-		case "kicked", "banned":
-			// moderation handler already removed from map + broadcast + logged
-		default:
-			s.RemoveClient(username)
-			reason := c.GetDisconnectReason()
-			if reason == "" {
-				reason = "voluntary"
-			}
-			leaveMsg := models.Message{
-				Timestamp: time.Now(),
-				Sender:    username,
-				Type:      models.MsgLeave,
-				Extra:     reason,
-			}
-			s.recordRoomEvent(currentRoom, leaveMsg)
-			s.BroadcastRoom(currentRoom, models.FormatLeave(username)+"\n", username)
+func (s *Server) cleanupConnection(c *client.Client) {
+	username := c.Username
+	currentRoom := c.Room
+	switch c.GetDisconnectReason() {
+	case "kicked", "banned":
+		// moderation handler already removed from map + broadcast + logged
+	default:
+		s.RemoveClient(username)
+		reason := c.GetDisconnectReason()
+		if reason == "" {
+			reason = "voluntary"
 		}
-		s.admitFromRoomQueue(currentRoom)
-		s.deleteRoomIfEmpty(currentRoom)
-		c.Close()
-	}()
+		leaveMsg := models.Message{
+			Timestamp: time.Now(),
+			Sender:    username,
+			Type:      models.MsgLeave,
+			Extra:     reason,
+		}
+		s.recordRoomEvent(currentRoom, leaveMsg)
+		s.BroadcastRoom(currentRoom, models.FormatLeave(username)+"\n", username)
+	}
+	s.admitFromRoomQueue(currentRoom)
+	s.deleteRoomIfEmpty(currentRoom)
+	c.Close()
+}
 
-	// Deliver room history
+func (s *Server) prepareClientSession(c *client.Client) {
 	for _, msg := range s.GetRoomHistory(c.Room) {
 		c.Send(msg.Display() + "\n")
 	}
-
-	// Enable character-at-a-time echo mode for input continuity
 	c.SetEchoMode(true)
-
-	// First prompt (uses SendPrompt so writeLoop tracks the prompt for redraw)
 	c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
+	s.broadcastClientJoin(c)
+	c.SetLastInput(time.Now())
+	go s.startHeartbeat(c)
+}
 
-	// Broadcast join to the room
+func (s *Server) broadcastClientJoin(c *client.Client) {
 	joinMsg := models.Message{
 		Timestamp: time.Now(),
 		Sender:    c.Username,
@@ -176,36 +200,37 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 	s.recordRoomEvent(c.Room, joinMsg)
 	s.BroadcastRoom(c.Room, models.FormatJoin(c.Username)+"\n", c.Username)
+}
 
-	// Initialize heartbeat tracking and start the health check goroutine
-	c.SetLastInput(time.Now())
-	go s.startHeartbeat(c)
-
-	// --- Message loop (character-at-a-time reading with echo) ---
+func (s *Server) serveClientSession(c *client.Client) {
 	for {
 		line, err := c.ReadLineInteractive()
 		if err != nil {
-			c.SetDisconnectReason("drop")
-			if err != io.EOF {
-				s.Logger.Log(models.Message{
-					Timestamp: time.Now(),
-					Type:      models.MsgServerEvent,
-					Content:   fmt.Sprintf("Connection error for %s: %v", c.Username, err),
-				})
-			}
+			s.handleSessionReadError(c, err)
 			return
 		}
-		// Any input from the client proves they are alive (heartbeat tracking)
 		c.SetLastInput(time.Now())
 		cmdName, args, isCmd := cmd.ParseCommand(line)
 		if isCmd {
 			if s.dispatchCommand(c, cmdName, args) {
-				return // /quit
+				return
 			}
 			continue
 		}
 		s.handleChatMessage(c, line)
 	}
+}
+
+func (s *Server) handleSessionReadError(c *client.Client, err error) {
+	c.SetDisconnectReason("drop")
+	if err == io.EOF {
+		return
+	}
+	s.Logger.Log(models.Message{
+		Timestamp: time.Now(),
+		Type:      models.MsgServerEvent,
+		Content:   fmt.Sprintf("Connection error for %s: %v", c.Username, err),
+	})
 }
 
 // ---------- room selection ----------

@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+type logLineParser func(time.Time, string, string) (Message, error)
+
 // MessageType identifies the kind of chat event.
 type MessageType int
 
@@ -151,101 +153,135 @@ func ParseLogLine(line string) (Message, error) {
 		return Message{}, fmt.Errorf("empty line")
 	}
 
+	ts, rest, err := parseLogTimestamp(line)
+	if err != nil {
+		return Message{}, err
+	}
+	room, rest, err := parseLogRoomTag(rest)
+	if err != nil {
+		return Message{}, err
+	}
+	keyword, payload, err := splitLogKeyword(rest)
+	if err != nil {
+		return Message{}, err
+	}
+	parser, ok := logLineParsers[keyword]
+	if !ok {
+		return Message{}, fmt.Errorf("unknown log line type")
+	}
+	return parser(ts, payload, room)
+}
+
+var logLineParsers = map[string]logLineParser{
+	"CHAT":       parseChatLogLine,
+	"JOIN":       parseJoinLogLine,
+	"LEAVE":      parseLeaveLogLine,
+	"NAMECHANGE": parseNameChangeLogLine,
+	"ANNOUNCE":   parseAnnouncementLogLine,
+	"MOD":        parseModerationLogLine,
+	"SERVER":     parseServerEventLogLine,
+}
+
+func parseLogTimestamp(line string) (time.Time, string, error) {
 	if line[0] != '[' {
-		return Message{}, fmt.Errorf("invalid format: missing opening bracket")
+		return time.Time{}, "", fmt.Errorf("invalid format: missing opening bracket")
 	}
 	closeBracket := strings.IndexByte(line, ']')
 	if closeBracket < 2 {
-		return Message{}, fmt.Errorf("invalid format: malformed timestamp")
+		return time.Time{}, "", fmt.Errorf("invalid format: malformed timestamp")
 	}
 
 	tsStr := line[1:closeBracket]
 	var year, month, day, hour, min, sec int
 	n, err := fmt.Sscanf(tsStr, "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &min, &sec)
 	if err != nil || n != 6 {
-		return Message{}, fmt.Errorf("invalid timestamp: %s", tsStr)
+		return time.Time{}, "", fmt.Errorf("invalid timestamp: %s", tsStr)
 	}
-	ts := time.Date(year, time.Month(month), day, hour, min, sec, 0, time.Local)
-
-	// After "] " comes an optional @room tag then the type keyword
 	if closeBracket+2 >= len(line) {
-		return Message{}, fmt.Errorf("invalid format: no content after timestamp")
-	}
-	rest := line[closeBracket+2:]
-
-	// Extract optional room tag
-	var room string
-	if len(rest) > 0 && rest[0] == '@' {
-		spaceIdx := strings.IndexByte(rest, ' ')
-		if spaceIdx < 0 {
-			return Message{}, fmt.Errorf("invalid format: room tag without type keyword")
-		}
-		room = rest[1:spaceIdx]
-		rest = rest[spaceIdx+1:]
+		return time.Time{}, "", fmt.Errorf("invalid format: no content after timestamp")
 	}
 
-	if strings.HasPrefix(rest, "CHAT ") {
-		inner := rest[5:]
-		if len(inner) < 3 || inner[0] != '[' {
-			return Message{}, fmt.Errorf("invalid CHAT format")
-		}
-		idx := strings.Index(inner, "]:")
-		if idx < 0 {
-			return Message{}, fmt.Errorf("invalid CHAT format: no closing bracket-colon")
-		}
-		sender := inner[1:idx]
-		content := inner[idx+2:]
-		return Message{Timestamp: ts, Type: MsgChat, Sender: sender, Content: content, Room: room}, nil
-	}
+	ts := time.Date(year, time.Month(month), day, hour, min, sec, 0, time.Local)
+	return ts, line[closeBracket+2:], nil
+}
 
-	if strings.HasPrefix(rest, "JOIN ") {
-		sender := rest[5:]
-		return Message{Timestamp: ts, Type: MsgJoin, Sender: sender, Room: room}, nil
+func parseLogRoomTag(rest string) (string, string, error) {
+	if len(rest) == 0 || rest[0] != '@' {
+		return "", rest, nil
 	}
-
-	if strings.HasPrefix(rest, "LEAVE ") {
-		parts := rest[6:]
-		idx := strings.IndexByte(parts, ' ')
-		if idx < 0 {
-			return Message{Timestamp: ts, Type: MsgLeave, Sender: parts, Extra: "voluntary", Room: room}, nil
-		}
-		return Message{Timestamp: ts, Type: MsgLeave, Sender: parts[:idx], Extra: parts[idx+1:], Room: room}, nil
+	spaceIdx := strings.IndexByte(rest, ' ')
+	if spaceIdx < 0 {
+		return "", "", fmt.Errorf("invalid format: room tag without type keyword")
 	}
+	return rest[1:spaceIdx], rest[spaceIdx+1:], nil
+}
 
-	if strings.HasPrefix(rest, "NAMECHANGE ") {
-		parts := rest[11:]
-		idx := strings.IndexByte(parts, ' ')
-		if idx < 0 {
-			return Message{}, fmt.Errorf("invalid NAMECHANGE format")
-		}
-		return Message{Timestamp: ts, Type: MsgNameChange, Sender: parts[idx+1:], Extra: parts[:idx], Room: room}, nil
+func splitLogKeyword(rest string) (string, string, error) {
+	if len(rest) == 0 {
+		return "", "", fmt.Errorf("invalid format: missing type keyword")
 	}
-
-	if strings.HasPrefix(rest, "ANNOUNCE ") {
-		inner := rest[9:]
-		if len(inner) < 3 || inner[0] != '[' {
-			return Message{}, fmt.Errorf("invalid ANNOUNCE format")
-		}
-		idx := strings.Index(inner, "]:")
-		if idx < 0 {
-			return Message{}, fmt.Errorf("invalid ANNOUNCE format: no closing bracket-colon")
-		}
-		announcer := inner[1:idx]
-		content := inner[idx+2:]
-		return Message{Timestamp: ts, Type: MsgAnnouncement, Content: content, Extra: announcer, Room: room}, nil
+	spaceIdx := strings.IndexByte(rest, ' ')
+	if spaceIdx < 0 {
+		return rest, "", nil
 	}
+	return rest[:spaceIdx], rest[spaceIdx+1:], nil
+}
 
-	if strings.HasPrefix(rest, "MOD ") {
-		fields := strings.SplitN(rest[4:], " ", 3)
-		if len(fields) < 3 {
-			return Message{}, fmt.Errorf("invalid MOD format")
-		}
-		return Message{Timestamp: ts, Type: MsgModeration, Content: fields[0], Sender: fields[1], Extra: fields[2], Room: room}, nil
+func parseChatLogLine(ts time.Time, payload, room string) (Message, error) {
+	sender, content, err := parseBracketedPayload(payload, "CHAT")
+	if err != nil {
+		return Message{}, err
 	}
+	return Message{Timestamp: ts, Type: MsgChat, Sender: sender, Content: content, Room: room}, nil
+}
 
-	if strings.HasPrefix(rest, "SERVER ") {
-		return Message{Timestamp: ts, Type: MsgServerEvent, Content: rest[7:]}, nil
+func parseJoinLogLine(ts time.Time, payload, room string) (Message, error) {
+	return Message{Timestamp: ts, Type: MsgJoin, Sender: payload, Room: room}, nil
+}
+
+func parseLeaveLogLine(ts time.Time, payload, room string) (Message, error) {
+	idx := strings.IndexByte(payload, ' ')
+	if idx < 0 {
+		return Message{Timestamp: ts, Type: MsgLeave, Sender: payload, Extra: "voluntary", Room: room}, nil
 	}
+	return Message{Timestamp: ts, Type: MsgLeave, Sender: payload[:idx], Extra: payload[idx+1:], Room: room}, nil
+}
 
-	return Message{}, fmt.Errorf("unknown log line type")
+func parseNameChangeLogLine(ts time.Time, payload, room string) (Message, error) {
+	idx := strings.IndexByte(payload, ' ')
+	if idx < 0 {
+		return Message{}, fmt.Errorf("invalid NAMECHANGE format")
+	}
+	return Message{Timestamp: ts, Type: MsgNameChange, Sender: payload[idx+1:], Extra: payload[:idx], Room: room}, nil
+}
+
+func parseAnnouncementLogLine(ts time.Time, payload, room string) (Message, error) {
+	announcer, content, err := parseBracketedPayload(payload, "ANNOUNCE")
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{Timestamp: ts, Type: MsgAnnouncement, Content: content, Extra: announcer, Room: room}, nil
+}
+
+func parseModerationLogLine(ts time.Time, payload, room string) (Message, error) {
+	fields := strings.SplitN(payload, " ", 3)
+	if len(fields) < 3 {
+		return Message{}, fmt.Errorf("invalid MOD format")
+	}
+	return Message{Timestamp: ts, Type: MsgModeration, Content: fields[0], Sender: fields[1], Extra: fields[2], Room: room}, nil
+}
+
+func parseServerEventLogLine(ts time.Time, payload, _ string) (Message, error) {
+	return Message{Timestamp: ts, Type: MsgServerEvent, Content: payload}, nil
+}
+
+func parseBracketedPayload(payload, keyword string) (string, string, error) {
+	if len(payload) < 3 || payload[0] != '[' {
+		return "", "", fmt.Errorf("invalid %s format", keyword)
+	}
+	idx := strings.Index(payload, "]:")
+	if idx < 0 {
+		return "", "", fmt.Errorf("invalid %s format: no closing bracket-colon", keyword)
+	}
+	return payload[1:idx], payload[idx+2:], nil
 }

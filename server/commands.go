@@ -9,6 +9,72 @@ import (
 	"time"
 )
 
+type clientCommandHandler func(*Server, *client.Client, string) bool
+
+var clientCommandHandlers = map[string]clientCommandHandler{
+	"quit": func(_ *Server, _ *client.Client, _ string) bool { return true },
+	"list": func(s *Server, c *client.Client, _ string) bool {
+		s.cmdList(c)
+		return false
+	},
+	"rooms": func(s *Server, c *client.Client, _ string) bool {
+		s.cmdRooms(c)
+		return false
+	},
+	"stats": func(s *Server, c *client.Client, _ string) bool {
+		s.cmdStats(c)
+		return false
+	},
+	"switch": func(s *Server, c *client.Client, args string) bool {
+		s.cmdSwitch(c, args)
+		return false
+	},
+	"create": func(s *Server, c *client.Client, args string) bool {
+		s.cmdCreate(c, args)
+		return false
+	},
+	"help": func(s *Server, c *client.Client, _ string) bool {
+		s.cmdHelp(c)
+		return false
+	},
+	"name": func(s *Server, c *client.Client, args string) bool {
+		s.cmdName(c, args)
+		return false
+	},
+	"whisper": func(s *Server, c *client.Client, args string) bool {
+		s.cmdWhisper(c, args)
+		return false
+	},
+	"kick": func(s *Server, c *client.Client, args string) bool {
+		s.cmdKick(c, args)
+		return false
+	},
+	"ban": func(s *Server, c *client.Client, args string) bool {
+		s.cmdBan(c, args)
+		return false
+	},
+	"mute": func(s *Server, c *client.Client, args string) bool {
+		s.cmdMute(c, args)
+		return false
+	},
+	"unmute": func(s *Server, c *client.Client, args string) bool {
+		s.cmdUnmute(c, args)
+		return false
+	},
+	"announce": func(s *Server, c *client.Client, args string) bool {
+		s.cmdAnnounce(c, args)
+		return false
+	},
+	"promote": func(s *Server, c *client.Client, args string) bool {
+		s.cmdPromote(c, args)
+		return false
+	},
+	"demote": func(s *Server, c *client.Client, args string) bool {
+		s.cmdDemote(c, args)
+		return false
+	},
+}
+
 // ---------- chat messages ----------
 
 // handleChatMessage validates a chat line, records it in room history, and broadcasts it to the room.
@@ -58,41 +124,13 @@ func (s *Server) dispatchCommand(c *client.Client, cmdName, args string) bool {
 		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
 		return false
 	}
-	switch cmdName {
-	case "quit":
-		return true
-	case "list":
-		s.cmdList(c)
-	case "rooms":
-		s.cmdRooms(c)
-	case "stats":
-		s.cmdStats(c)
-	case "switch":
-		s.cmdSwitch(c, args)
-	case "create":
-		s.cmdCreate(c, args)
-	case "help":
-		s.cmdHelp(c)
-	case "name":
-		s.cmdName(c, args)
-	case "whisper":
-		s.cmdWhisper(c, args)
-	case "kick":
-		s.cmdKick(c, args)
-	case "ban":
-		s.cmdBan(c, args)
-	case "mute":
-		s.cmdMute(c, args)
-	case "unmute":
-		s.cmdUnmute(c, args)
-	case "announce":
-		s.cmdAnnounce(c, args)
-	case "promote":
-		s.cmdPromote(c, args)
-	case "demote":
-		s.cmdDemote(c, args)
+	handler, exists := clientCommandHandlers[cmdName]
+	if !exists {
+		c.Send("Unknown command: /" + cmdName + ". Use /help to see available commands.\n")
+		c.SendPrompt(models.FormatPrompt(time.Now(), c.Username))
+		return false
 	}
-	return false
+	return handler(s, c, args)
 }
 
 // ---------- /list (room-scoped) ----------
