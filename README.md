@@ -1,5 +1,13 @@
 # net-cat
 
+[![Release](https://img.shields.io/github/v/release/terry-xyz/net-cat?display_name=tag)](https://github.com/terry-xyz/net-cat/releases/latest)
+[![License](https://img.shields.io/github/license/terry-xyz/net-cat)](https://github.com/terry-xyz/net-cat/blob/main/LICENSE)
+[![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)](https://go.dev/dl/)
+[![CI](https://github.com/terry-xyz/net-cat/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/terry-xyz/net-cat/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/terry-xyz/net-cat)](https://goreportcard.com/report/github.com/terry-xyz/net-cat)
+[![codecov](https://codecov.io/gh/terry-xyz/net-cat/branch/main/graph/badge.svg)](https://codecov.io/gh/terry-xyz/net-cat)
+[![Makefile](https://img.shields.io/badge/Build-Makefile-orange.svg)](#development)
+
 `net-cat` is a terminal-based TCP chat server written in Go. It supports multi-room chat, private messaging, moderation commands, daily log files, chat-history recovery, and an operator/admin model for managing active rooms.
 
 ## Requirements
@@ -19,19 +27,19 @@ cd net-cat
 Build the server:
 
 ```bash
-go build -o TCPChat
+make build
 ```
 
 Start the server on the default port (`8989`):
 
 ```bash
-./TCPChat
+make run
 ```
 
 Start the server on a custom port:
 
 ```bash
-./TCPChat 3000
+make run ARGS=3000
 ```
 
 Connect from another terminal:
@@ -106,12 +114,25 @@ Operator-only commands from the server terminal:
 Run the full test suite:
 
 ```bash
-go test ./...
+make test
 ```
 
 Useful commands:
 
 ```bash
+make build
+make run ARGS=3000
+make test-v
+make cover
+make fmt
+make clean
+```
+
+Direct Go commands still work:
+
+```bash
+go build -o TCPChat
+go test ./...
 go test -v ./...
 go test -cover ./...
 gofmt -w .
