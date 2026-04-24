@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v1.0.0...v1.1.0) (2026-04-24)
+
+### Added
+
+- /stats command ([#39](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/7b1c9a821d27768094a180f71b9e985f65589beb))
+
+### Documentation
+
+- *(go)* add missing comments across sources ([#38](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/5a64d38489d2f76ff664478853f392f64747971d))
+- *(CONTRIBUTING.md)* add contribution guide ([#43](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/22a35edf096d5a46905598bc8b16bb06b445de55))
+- *(LICENSE)* add MIT license ([#44](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/54b15f8c11691d5b9c946c03adc18a2dd4d03ff2))
+
+### Other
+
+- updated README.md ([#42](https://platform.zone01.gr/git/lpapanthy/net-cat/commit/aefa93385e237d33de2a25f1c4c9c2431653212e))
+
 ## [1.0.0](https://platform.zone01.gr/git/lpapanthy/net-cat/compare/v0.2.2...v1.0.0) (2026-03-04)
 
 ### Added
