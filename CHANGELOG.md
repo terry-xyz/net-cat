@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1](https://github.com/terry-xyz/net-cat/compare/v1.1.0...v1.1.1) (2026-04-25)
+
+### Fixed
+
+- *(go.mod)* align module path with github repository ([#53](https://github.com/terry-xyz/net-cat/commit/8520457ce0e18b53cdc76bf551ea1d7ff9cbe988))
+
+### Documentation
+
+- *(README.md)* rewrite root readme ([#46](https://github.com/terry-xyz/net-cat/commit/a1f04405cbbac24b797e895a3882018c4657e13b))
+- *(CHANGELOG.md)* rewrite repo links to github ([#47](https://github.com/terry-xyz/net-cat/commit/fd40e6467ac70080965ee717c41371b89f1136cc))
+- *(README.md)* add project badges and make usage ([#50](https://github.com/terry-xyz/net-cat/commit/7f059ad90326b13c55ad01d26709dc55dc4369b8))
+
+### Other
+
+- *(Makefile)* add development targets ([#48](https://github.com/terry-xyz/net-cat/commit/78a5581b386ee7bf1e448558adc1d3129d188dea))
+- *(.github/workflows/ci.yml)* add github actions workflow ([#49](https://github.com/terry-xyz/net-cat/commit/a34e428b988f6be386934f692c0be535961b74ac))
+- *(server)* reduce command and connection complexity ([#51](https://github.com/terry-xyz/net-cat/commit/d8db05d2a7deb7f26332ef3b420a6939fe76bfd5))
+
 ## [1.1.0](https://github.com/terry-xyz/net-cat/compare/v1.0.0...v1.1.0) (2026-04-24)
 
 ### Added
