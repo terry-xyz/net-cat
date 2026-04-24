@@ -1,7 +1,7 @@
 package logger
 
 import (
-	"net-cat/models"
+	"github.com/terry-xyz/net-cat/models"
 	"os"
 	"path/filepath"
 	"runtime"

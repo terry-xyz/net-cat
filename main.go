@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"net-cat/logger"
-	"net-cat/server"
+	"github.com/terry-xyz/net-cat/logger"
+	"github.com/terry-xyz/net-cat/server"
 	"os"
 	"os/signal"
 )

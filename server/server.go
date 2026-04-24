@@ -2,11 +2,11 @@ package server
 
 import (
 	"fmt"
+	"github.com/terry-xyz/net-cat/client"
+	"github.com/terry-xyz/net-cat/logger"
+	"github.com/terry-xyz/net-cat/models"
 	"io"
 	"net"
-	"net-cat/client"
-	"net-cat/logger"
-	"net-cat/models"
 	"os"
 	"sync"
 	"time"

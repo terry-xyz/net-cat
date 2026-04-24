@@ -3,8 +3,8 @@ package server
 import (
 	"bufio"
 	"fmt"
-	"net-cat/logger"
-	"net-cat/models"
+	"github.com/terry-xyz/net-cat/logger"
+	"github.com/terry-xyz/net-cat/models"
 	"os"
 	"time"
 )

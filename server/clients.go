@@ -2,7 +2,7 @@ package server
 
 import (
 	"errors"
-	"net-cat/client"
+	"github.com/terry-xyz/net-cat/client"
 	"time"
 )
 

@@ -2,8 +2,8 @@ package server
 
 import (
 	"fmt"
-	"net-cat/client"
-	"net-cat/models"
+	"github.com/terry-xyz/net-cat/client"
+	"github.com/terry-xyz/net-cat/models"
 )
 
 // Room holds per-room state: members, history, and waiting queue.

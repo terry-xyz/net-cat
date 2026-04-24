@@ -6,8 +6,8 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/terry-xyz/net-cat/logger"
 	"net"
-	"net-cat/logger"
 	"os"
 	"path/filepath"
 	"strings"
@@ -913,7 +913,7 @@ func TestIntegrationErrorSanitization(t *testing.T) {
 		"panic",
 		".go:",
 		"runtime.",
-		"net-cat/",
+		"github.com/terry-xyz/net-cat/",
 		"server/",
 		"handler.go",
 		"server.go",

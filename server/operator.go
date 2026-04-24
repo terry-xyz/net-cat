@@ -3,9 +3,9 @@ package server
 import (
 	"bufio"
 	"fmt"
+	"github.com/terry-xyz/net-cat/cmd"
+	"github.com/terry-xyz/net-cat/models"
 	"io"
-	"net-cat/cmd"
-	"net-cat/models"
 	"strings"
 	"time"
 )

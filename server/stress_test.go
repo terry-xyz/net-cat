@@ -6,8 +6,8 @@ package server
 
 import (
 	"fmt"
+	"github.com/terry-xyz/net-cat/models"
 	"net"
-	"net-cat/models"
 	"os"
 	"path/filepath"
 	"runtime"

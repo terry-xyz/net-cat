@@ -7,8 +7,8 @@ package server
 
 import (
 	"fmt"
-	"net-cat/logger"
-	"net-cat/models"
+	"github.com/terry-xyz/net-cat/logger"
+	"github.com/terry-xyz/net-cat/models"
 	"os"
 	"path/filepath"
 	"strings"

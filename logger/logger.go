@@ -2,7 +2,7 @@ package logger
 
 import (
 	"fmt"
-	"net-cat/models"
+	"github.com/terry-xyz/net-cat/models"
 	"os"
 	"path/filepath"
 	"sync"
