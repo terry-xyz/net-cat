@@ -1,236 +1,133 @@
-# Net-Cat
+# net-cat
 
-A group chat server that runs in your terminal. Anyone on the same network can connect and chat in real time — no browser, no account, no app to install.
+`net-cat` is a terminal-based TCP chat server written in Go. It supports multi-room chat, private messaging, moderation commands, daily log files, chat-history recovery, and an operator/admin model for managing active rooms.
 
-```
-Welcome to TCP-Chat!
-         _nnnn_
-        dGGGGMMb
-       @p~qp~~qMb
-       M|@||@) M|
-       @,----.JM|
-      JS^\__/  qKL
-     dZP        qKRb
-    dZP          qKKb
-   fZP            SMMb
-   HZM            MMMM
-   FqM            MMMM
- __| ".        |\dS"qML
- |    `.       | `' \Zq
-_)      \.___.,|     .'
-\____   )MMMMMP|   .'
-     `-'       `--'
-```
+## Requirements
 
-## What You Need
+- Go 1.25 or newer
+- A terminal client such as `nc`, or `bash` with `/dev/tcp` support for manual testing
 
-- **Go** (version 1.25 or newer) — this is the programming language the server is written in.
-  - Download it from [go.dev/dl](https://go.dev/dl/).
-  - Pick the installer for your operating system (Windows, macOS, or Linux) and follow the installation steps.
-  - After installing, open a terminal and type `go version`. If you see a version number, you're good.
+## Quick Start
 
-That's the only thing you need to install. Everything else is included.
-
-## Getting the Project
-
-If you received this as a `.zip` file, extract it to any folder.
-
-If you want to get it from GitHub, open a terminal and run:
+Clone the GitHub repository:
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/terry-xyz/net-cat.git
 cd net-cat
 ```
 
-## Building the Server
-
-Open a terminal, navigate to the project folder, and run:
+Build the server:
 
 ```bash
 go build -o TCPChat
 ```
 
-This creates a file called `TCPChat` (or `TCPChat.exe` on Windows) — that's your chat server.
-
-## Starting the Server
-
-Run the server with:
+Start the server on the default port (`8989`):
 
 ```bash
 ./TCPChat
 ```
 
-You'll see a message like:
-
-```
-Listening on port :8989
-```
-
-The server is now running and waiting for people to connect.
-
-### Using a Different Port
-
-By default the server uses port `8989`. To use a different port:
+Start the server on a custom port:
 
 ```bash
 ./TCPChat 3000
 ```
 
-This starts the server on port `3000` instead. Valid ports are `1` through `65535`.
-
-## Connecting to the Chat
-
-Anyone on the same network can join. They do **not** need Go installed — just a terminal.
-
-### Using netcat (recommended)
+Connect from another terminal:
 
 ```bash
 nc localhost 8989
 ```
 
-This works on Linux, macOS, and Windows (if netcat is installed).
-
-### Using bash only (no netcat needed)
-
-If you don't have `nc` installed, you can connect using bash's built-in `/dev/tcp` support:
+If `nc` is unavailable, use bash:
 
 ```bash
 exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3
 ```
 
-Or step by step:
+Change `localhost` with your IPv4 to connect on different machine (must be connected on the same network as the server)
 
-```bash
-# 1. Open a TCP connection on file descriptor 3
-exec 3<>/dev/tcp/localhost/8989
+## Usage
 
-# 2. Read from the server in the background
-cat <&3 &
+On connect, the server prompts for:
 
-# 3. Send your input to the server (type here)
-cat >&3
-```
+1. A username
+2. A room name, or empty input to join the default room (`general`)
 
-> **Note:** This works in **bash** only (Linux, macOS, Git Bash/MSYS2 on Windows). It does NOT work in `zsh`, `sh`, `dash`, or `fish`. With this method, your input is line-buffered — you type a full line and press Enter, rather than seeing each character echoed in real time like with netcat.
+Each room supports up to 10 active clients. Additional clients can wait in a FIFO queue until a slot becomes available.
 
-To disconnect, press `Ctrl+C` and then clean up the file descriptor:
-
-```bash
-exec 3>&-
-```
-
-Replace `localhost` with the server's IP address if connecting from a different computer on the network (e.g., `nc 192.168.1.50 8989` or `exec 3<>/dev/tcp/192.168.1.50/8989`).
-
-### What Happens When You Connect
-
-1. You see the welcome banner with the penguin ASCII art.
-2. You're asked to enter a name. Pick something unique — no spaces allowed, max 32 characters.
-3. You choose a chat room to join. Press Enter to join the default room (`general`), or type a room name to join or create a different room.
-4. Once you're in, everything you type is sent to everyone in your room.
-5. If the room is full (10 people max per room), you'll be asked if you want to wait in a queue. When a spot opens, you're automatically let in.
-
-## Chatting
-
-Just type your message and press **Enter**. Everyone in the chat will see it with your name and a timestamp:
-
-```
-[2026-02-24 14:30:05][Alice]: Hello everyone!
-```
+Messages are timestamped and broadcast only within the current room. Private messages work across rooms with `/whisper`.
 
 ## Commands
 
-Type these instead of a regular message. All commands start with `/`.
+User commands:
 
-### Commands Everyone Can Use
-
-| Command | What It Does |
-|---|---|
-| `/list` | Shows everyone in your current room and how long they've been idle |
-| `/rooms` | Lists all available rooms with client counts, marks your current room |
-| `/switch <room>` | Switch to another room (creates it if it doesn't exist yet) |
+| Command | Description |
+| --- | --- |
+| `/list` | List clients in the current room with idle times |
+| `/rooms` | List rooms and client counts |
+| `/stats` | Show active users, room count, and uptime |
+| `/switch <room>` | Switch to another room |
 | `/create <room>` | Create and switch to a new room |
-| `/whisper <name> <message>` | Sends a private message only that person can see (works across rooms) |
-| `/name <newname>` | Changes your display name |
-| `/stats` | Shows active users, active rooms and current room uptime |
-| `/help` | Shows all commands available to you |
-| `/quit` | Disconnects you from the chat |
+| `/name <newname>` | Change your display name |
+| `/whisper <name> <message>` | Send a private message |
+| `/help` | Show available commands |
+| `/quit` | Disconnect |
 
-### Admin Commands
+Admin commands:
 
-These only work if the server operator has promoted you to admin.
+| Command | Description |
+| --- | --- |
+| `/kick <name>` | Remove a user from chat |
+| `/ban <name>` | Ban a user for the current server session |
+| `/mute <name>` | Mute a user |
+| `/unmute <name>` | Unmute a user |
+| `/announce <message>` | Broadcast an announcement |
 
-| Command | What It Does |
-|---|---|
-| `/kick <name>` | Removes someone from your room (they can rejoin after 5 minutes) |
-| `/ban <name>` | Permanently removes someone (they cannot rejoin until the server restarts) |
-| `/mute <name>` | Prevents someone from sending messages |
-| `/unmute <name>` | Allows a muted person to send messages again |
-| `/announce <message>` | Sends a highlighted announcement to everyone |
+Operator-only commands from the server terminal:
 
-## Running the Server (Operator Guide)
+| Command | Description |
+| --- | --- |
+| `/promote <name>` | Promote a user to admin |
+| `/demote <name>` | Remove admin privileges |
+| `/kick <ip>` | Kick a queued user by IP |
+| `/ban <ip>` | Ban a queued user by IP |
 
-The person running the server (the operator) has extra powers. While the server is running, you can type commands directly into the server's terminal.
+## Operational Notes
 
-### Operator Commands
+- Logs are written to `logs/chat_YYYY-MM-DD.log`.
+- Same-day history is recovered on restart and restored per room.
+- Promoted admins are persisted in `admins.json`.
+- `Ctrl+C` triggers graceful shutdown with a 5-second disconnect window before forced close.
 
-You have access to all admin commands listed above, plus:
+## Development
 
-| Command | What It Does |
-|---|---|
-| `/promote <name>` | Makes someone an admin (only the operator can do this) |
-| `/demote <name>` | Removes someone's admin status |
-| `/kick <IP>` | Kicks a queued user by their IP address |
-| `/ban <IP>` | Bans a queued user by their IP address |
-
-### Shutting Down the Server
-
-Press **Ctrl+C** in the server terminal. The server will:
-
-1. Notify all connected users that it's shutting down.
-2. Wait up to 5 seconds for everyone to disconnect.
-3. Close all remaining connections.
-4. Save the logs and exit.
-
-## Logs
-
-The server automatically saves all chat activity to daily log files in a `logs/` folder:
-
-```
-logs/chat_2026-02-24.log
-```
-
-A new log file is created each day. Log entries include `@roomname` tags to track which room each event occurred in. If you restart the server on the same day, the previous messages are loaded back into the correct rooms so new users see room-specific chat history.
-
-## Admin Persistence
-
-When the operator promotes someone to admin, their name is saved in an `admins.json` file. If that person disconnects and later reconnects, they automatically get their admin powers back.
-
-## Troubleshooting
-
-**"Address already in use" when starting the server**
-Another program is using that port. Either stop the other program, or start the server on a different port: `./TCPChat 4000`
-
-**Can't connect from another computer**
-Make sure both computers are on the same network. Use the server computer's local IP address (find it with `ipconfig` on Windows or `ifconfig` / `ip addr` on Linux/macOS) instead of `localhost`. Also check that the firewall isn't blocking the port.
-
-**"go: command not found" when building**
-Go isn't installed or isn't in your system PATH. Reinstall Go from [go.dev/dl](https://go.dev/dl/) and make sure to follow the PATH setup instructions for your operating system.
-
-**Connection drops unexpectedly**
-The server checks for unresponsive connections every 10 seconds. If your network is unstable, you may get disconnected. Simply reconnect and pick your name again.
-
-## Quick Start Summary
+Run the full test suite:
 
 ```bash
-# 1. Build
-go build -o TCPChat
-
-# 2. Start the server
-./TCPChat
-
-# 3. Connect from another terminal
-nc localhost 8989
-
-# Or, if you don't have netcat:
-exec 3<>/dev/tcp/localhost/8989; cat <&3 & cat >&3
+go test ./...
 ```
+
+Useful commands:
+
+```bash
+go test -v ./...
+go test -cover ./...
+gofmt -w .
+```
+
+Project layout:
+
+- `main.go`: process entrypoint and signal handling
+- `server/`: room management, commands, moderation, recovery, and operator flow
+- `client/`: connection state and terminal I/O behavior
+- `cmd/`: shared command registry and parsing
+- `logger/`: daily log handling
+- `models/`: shared message types
+
+## Documentation
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [LICENSE](LICENSE)
